@@ -1,0 +1,27 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+        exclude: ^client/tsconfig.*\.json$
+      - id: check-added-large-files
+        exclude: ^samples/invoices/.*\.pdf$
+      - id: detect-private-key
+
+  # Client (uses the project's own Prettier/oxlint from client/node_modules)
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: client/node_modules/.bin/prettier --write --ignore-unknown
+        language: system
+        files: ^client/
+        exclude: ^client/package-lock\.json$
+      - id: oxlint
+        name: oxlint
+        entry: client/node_modules/.bin/oxlint -c client/.oxlintrc.json --deny-warnings
+        language: system
+        files: ^client/src/.*\.(ts|tsx)$

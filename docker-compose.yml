@@ -1,0 +1,52 @@
+# The web UI on http://localhost:8080, n8n on http://localhost:5678
+#
+#   cp .env.example .env    # workflow settings; optional for a first look
+#   docker compose up -d --build
+#
+# Workflows, credentials and execution history live in the `n8n_data` volume.
+
+services:
+  n8n:
+    image: n8nio/n8n:2.46.7
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      # Keep a week of executions: enough to debug a bad invoice.
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # Read-only: the workflow JSON and test invoices, for `n8n import:workflow`.
+      - ./workflows:/workflows:ro
+      - ./samples:/samples:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  client:
+    build: ./client
+    ports:
+      - "${INVOICE_WEB_PORT:-8080}:80"
+    environment:
+      N8N_UPSTREAM: http://n8n:5678
+    depends_on:
+      n8n:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  n8n_data:
