@@ -174,16 +174,3 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 ├── .pre-commit-config.yaml
 └── .github/workflows/ci.yml
 ```
-
-## Roadmap
-
-Built in small, reviewable pull requests:
-
-- [x] **1. Project setup**: n8n and the web UI in Docker Compose, React + MUI app shell (layout, theme, routing, n8n status), tests, CI, pre-commit
-- [ ] **2. Test invoices**: five PDF invoices covering the cases above, with expected values
-- [ ] **3. Main workflow**: Gmail → PDF text → OpenAI extraction → Google Sheets → Slack
-- [ ] **4. Review and errors**: checks, Review tab, Slack alerts, Gmail labels, error workflow
-- [ ] **5. Workflow API**: n8n webhooks for the UI (invoices, review queue, approve/reject, upload)
-- [ ] **6. Dashboard and invoices**: stats, charts, invoice table with details and the PDF
-- [ ] **7. Review queue and upload**: fix and approve flagged invoices, upload a PDF by hand
-- [ ] **8. Polish**: screenshots, end-to-end run on the test invoices, docs
