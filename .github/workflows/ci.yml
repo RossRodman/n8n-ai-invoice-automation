@@ -21,7 +21,7 @@ jobs:
             | xargs -0 -r -n1 jq empty
 
   samples:
-    name: Test invoices
+    name: Test invoices and workflows
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,7 +40,7 @@ jobs:
           npm run format:check
       - name: Type-check
         run: npm run typecheck
-      - name: PDFs match expected.json
+      - name: Test invoices and workflow code
         run: npm test
 
   client:

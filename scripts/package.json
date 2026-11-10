@@ -1,9 +1,9 @@
 {
-  "name": "invoice-samples",
+  "name": "invoice-automation-scripts",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Builds and checks the test invoices in samples/invoices.",
+  "description": "Test invoices and tests for the n8n workflows.",
   "scripts": {
     "samples": "tsx src/make.ts",
     "typecheck": "tsc --noEmit",

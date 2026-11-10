@@ -21,6 +21,8 @@ services:
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
+      # The workflows read their settings (sheet id, channels, model) from $env.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # Keep a week of executions: enough to debug a bad invoice.
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: "168"

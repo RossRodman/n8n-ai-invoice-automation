@@ -36,6 +36,10 @@ flowchart LR
 6. **Review path**: the invoice goes to the **Review** tab with the reason, Slack gets an alert with a link to the email, and the email is labelled `invoices/review`. A person fixes the row and moves it over.
 7. **Errors** (API down, expired credentials, unreadable file) go to a separate error workflow that alerts Slack. Nothing fails silently, and the email stays unlabelled so it is picked up again.
 
+![The invoice workflow in the n8n editor](docs/screenshots/workflow.png)
+
+The workflow is [`workflows/invoice-processing.json`](workflows/invoice-processing.json). OpenAI is called through n8n's HTTP Request node with a strict JSON schema (`response_format: json_schema`), so every answer has exactly the fields above, with `null` for anything that isn't on the invoice. Calls to OpenAI and Google Sheets are retried before an execution counts as failed.
+
 ### Extracted fields
 
 | Field | Example | |
@@ -79,7 +83,7 @@ The invoices are generated from [`scripts/src/data.ts`](scripts/src/data.ts), so
 cd scripts
 npm install
 npm run samples   # rebuild the PDFs and expected.json (needs Chrome; set CHROME if it isn't found)
-npm test          # the PDFs and expected.json agree; runs in CI
+npm test          # the PDFs and expected.json agree, and the workflow's code works; runs in CI
 ```
 
 ## Tech stack
@@ -91,7 +95,7 @@ npm test          # the PDFs and expected.json agree; runs in CI
 | **Integrations** | Gmail (trigger, labels), Google Sheets (ledger), Slack (notifications) |
 | **Web UI** | React 19, TypeScript (strict), Vite, Material UI 9 (light and dark), TanStack Query, React Router |
 | **API** | n8n webhook workflows; nginx (Docker) and Vite (dev) proxy `/api/*` to n8n's `/webhook/*` |
-| **Test data** | TypeScript: invoices printed by headless Chrome, the scan made with sharp and pdf-lib, checked with pdf.js (unpdf) and Vitest |
+| **Tests** | The workflow's Code nodes run in Vitest against the test invoices' expected values; the test PDFs are printed by headless Chrome, the scan made with sharp and pdf-lib, and checked with pdf.js (unpdf) |
 | **Quality** | Vitest + Testing Library, oxlint, Prettier, pre-commit, GitHub Actions |
 
 ## Quick start
@@ -114,10 +118,13 @@ Open n8n and create the owner account. Then:
    - **Gmail** and **Google Sheets**: Google OAuth2. In Google Cloud, enable the Gmail and Sheets APIs and add `http://localhost:5678/rest/oauth2-credential/callback` as a redirect URI.
    - **OpenAI**: an API key.
    - **Slack**: a bot token with the `chat:write` scope, invited to both channels.
-2. **Google Sheet** with two tabs, **Invoices** and **Review**. Put its id in `INVOICE_SHEET_ID`.
-3. **Import the workflow**: *Workflows → Import from file → `workflows/…json`*, or from the terminal:
+2. **Google Sheet** with two tabs, **Invoices** and **Review**. Put its id in `INVOICE_SHEET_ID`. The workflow fills columns by name, so paste this header row into row 1 of the **Invoices** tab:
+   ```
+   received_at	supplier_name	supplier_tax_id	invoice_number	invoice_date	due_date	currency	net_amount	vat_rate	vat_amount	total_amount	confidence	file_name	email_from	email_subject	email_link	gmail_message_id
+   ```
+3. **Import the workflow**: *Workflows → Import from file → `workflows/invoice-processing.json`*, or from the terminal:
    ```bash
-   docker compose exec n8n n8n import:workflow --input=/workflows/<file>.json
+   docker compose exec n8n n8n import:workflow --input=/workflows/invoice-processing.json
    ```
 4. Pick the credentials in each node, activate the workflow, and email yourself one of the test invoices.
 
@@ -177,8 +184,9 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 │   ├── Dockerfile          # Vite build served by nginx
 │   └── nginx.conf          # SPA + /api proxy to n8n
 ├── workflows/              # exported n8n workflows (JSON, no credentials)
+│   └── invoice-processing.json
 ├── samples/invoices/       # five test invoices (PDF) and expected.json
-├── scripts/                # TypeScript: build and check the test invoices
+├── scripts/                # TypeScript: test invoices and tests for the workflows
 ├── docs/screenshots/       # screenshots for this README
 ├── docker-compose.yml      # n8n on :5678, web UI on :8080
 ├── .env.example            # workflow settings
