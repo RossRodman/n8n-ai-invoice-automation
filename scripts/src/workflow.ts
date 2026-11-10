@@ -48,6 +48,8 @@ interface CodeContext {
   json?: Record<string, unknown>;
   /** What $('Other node').item.json returns, by node name. */
   nodes?: Record<string, Record<string, unknown>>;
+  /** What $('Other node').all() returns, by node name. */
+  nodeItems?: Record<string, Item[]>;
   env?: Record<string, string>;
 }
 
@@ -58,11 +60,18 @@ export function runCode(workflow: Workflow, name: string, context: CodeContext =
 
   const input = context.input ?? [];
   const $input = { all: () => input, first: () => input[0], item: input[0] };
-  const $ = (other: string) => {
-    const json = context.nodes?.[other];
-    if (!json) throw new Error(`test gave no data for $('${other}')`);
-    return { item: { json } };
-  };
+  const $ = (other: string) => ({
+    get item() {
+      const json = context.nodes?.[other];
+      if (!json) throw new Error(`test gave no data for $('${other}').item`);
+      return { json };
+    },
+    all() {
+      const items = context.nodeItems?.[other];
+      if (!items) throw new Error(`test gave no data for $('${other}').all()`);
+      return items;
+    },
+  });
 
   // oxlint-disable-next-line typescript/no-implied-eval -- runs the workflow's own code
   const body = new Function("$input", "$json", "$", "$env", String(node.parameters.jsCode));

@@ -18,27 +18,35 @@
 flowchart LR
     G([Gmail: new email<br/>with a PDF]) --> A[Split<br/>attachments]
     A --> T[Extract PDF text]
-    T --> AI[OpenAI: structured<br/>extraction]
-    AI --> V{Checks pass?}
+    T --> H{Has text?}
+    H -- yes --> AI[OpenAI: structured<br/>extraction]
+    AI -- failed --> W[Wait 20 s,<br/>try again]
+    W --> P
+    AI --> P[Parse]
+    P --> V{Checks pass?}
     V -- yes --> S[(Sheets: Invoices)]
     S --> SL[Slack #invoices]
     SL --> L1[Gmail label<br/>invoices/processed]
+    H -- no --> R
+    T -- unreadable --> R
+    W -- failed again --> R
     V -- no --> R[(Sheets: Review)]
     R --> SR[Slack #invoices-review]
     SR --> L2[Gmail label<br/>invoices/review]
 ```
 
 1. **Gmail trigger** polls for emails that match `INVOICE_GMAIL_QUERY` (PDF attachments not yet labelled), and downloads the attachments.
-2. **Each PDF is handled on its own**, so an email with three invoices gives three rows.
-3. **The text is extracted from the PDF** and sent to **OpenAI** with a JSON schema. The answer is the invoice fields plus a confidence score, never free text.
-4. **Checks** decide whether the result can go straight into the books (see below).
-5. **Happy path**: a row is added to the **Invoices** tab, a short message is posted to Slack, and the email is labelled `invoices/processed`.
-6. **Review path**: the invoice goes to the **Review** tab with the reason, Slack gets an alert with a link to the email, and the email is labelled `invoices/review`. A person fixes the row and moves it over.
-7. **Errors** (API down, expired credentials, unreadable file) go to a separate error workflow that alerts Slack. Nothing fails silently, and the email stays unlabelled so it is picked up again.
+2. **Each PDF is handled on its own**, so an email with three invoices gives three rows, and one bad PDF doesn't hold up the others.
+3. **The text is extracted from the PDF.** A PDF without text (a scan) or one that can't be opened goes straight to review.
+4. **OpenAI** gets the text and a strict JSON schema. The answer is the invoice fields plus a confidence score, never free text. A failed call (rate limit, server error) is tried again after 20 seconds; if that fails too, the invoice goes to review.
+5. **Checks** decide whether the result can go straight into the books (see below).
+6. **Into the books**: a row is added to the **Invoices** tab, a short message is posted to `#invoices`, and the email is labelled `invoices/processed`.
+7. **Needs a person**: the invoice goes to the **Review** tab with the reasons, `#invoices-review` gets an alert with links to the email and the sheet, and the email is labelled `invoices/review`. A person fixes the row and moves it to the Invoices tab.
+8. **Errors** in the workflow itself (expired credentials, Google Sheets or Slack down) start a separate error workflow that posts the failed step, the error and a link to the execution to `#invoices-review`, so it can be fixed and retried from n8n.
 
 ![The invoice workflow in the n8n editor](docs/screenshots/workflow.png)
 
-The workflow is [`workflows/invoice-processing.json`](workflows/invoice-processing.json). OpenAI is called through n8n's HTTP Request node with a strict JSON schema (`response_format: json_schema`), so every answer has exactly the fields above, with `null` for anything that isn't on the invoice. Calls to OpenAI and Google Sheets are retried before an execution counts as failed.
+The workflows are [`workflows/invoice-processing.json`](workflows/invoice-processing.json) and [`workflows/invoice-errors.json`](workflows/invoice-errors.json). OpenAI is called through n8n's HTTP Request node with a strict JSON schema (`response_format: json_schema`), so every answer has exactly the fields above, with `null` for anything that isn't on the invoice.
 
 ### Extracted fields
 
@@ -58,12 +66,17 @@ The workflow is [`workflows/invoice-processing.json`](workflows/invoice-processi
 
 ### When an invoice goes to manual review
 
-- A required field is missing (supplier, number, date, total).
-- The amounts don't add up: `net + VAT ≠ total`, or `VAT ≠ net × rate` (tolerance 0.02).
-- The date can't be parsed or is in the future.
-- `confidence` is below `INVOICE_MIN_CONFIDENCE`.
-- The same supplier and invoice number are already in the sheet (duplicate).
-- The PDF has no text layer (a scanned image).
+Every reason that applies is listed in the Review tab, with a sentence a person can act on ("Amounts don't add up: net + VAT is 10 140,00, the total says 10 240,00").
+
+| Reason | When |
+|---|---|
+| `missing_fields` | Supplier, invoice number, date, currency, net, VAT or total is missing, or a date can't be read |
+| `amounts_mismatch` | `net + VAT ≠ total`, or `VAT ≠ net × rate` (2 cents of rounding allowed) |
+| `invalid_date` | The invoice date is in the future, or the due date is before it |
+| `low_confidence` | The model's confidence is below `INVOICE_MIN_CONFIDENCE` |
+| `duplicate` | The same supplier (tax id, or name without one) and invoice number are already in the Invoices tab, or earlier in the same batch |
+| `no_text_layer` | The PDF has no text, usually a scan |
+| `extraction_failed` | The PDF can't be opened, or OpenAI failed twice |
 
 ## Test invoices
 
@@ -118,15 +131,24 @@ Open n8n and create the owner account. Then:
    - **Gmail** and **Google Sheets**: Google OAuth2. In Google Cloud, enable the Gmail and Sheets APIs and add `http://localhost:5678/rest/oauth2-credential/callback` as a redirect URI.
    - **OpenAI**: an API key.
    - **Slack**: a bot token with the `chat:write` scope, invited to both channels.
-2. **Google Sheet** with two tabs, **Invoices** and **Review**. Put its id in `INVOICE_SHEET_ID`. The workflow fills columns by name, so paste this header row into row 1 of the **Invoices** tab:
+2. **Google Sheet** with two tabs, **Invoices** and **Review**. Put its id in `INVOICE_SHEET_ID`. The workflow fills columns by name, so paste these header rows into row 1 of each tab.
+
+   **Invoices**:
    ```
    received_at	supplier_name	supplier_tax_id	invoice_number	invoice_date	due_date	currency	net_amount	vat_rate	vat_amount	total_amount	confidence	file_name	email_from	email_subject	email_link	gmail_message_id
    ```
-3. **Import the workflow**: *Workflows → Import from file → `workflows/invoice-processing.json`*, or from the terminal:
+   **Review** (the same columns, after the reasons):
+   ```
+   review_reasons	review_details	received_at	supplier_name	supplier_tax_id	invoice_number	invoice_date	due_date	currency	net_amount	vat_rate	vat_amount	total_amount	confidence	file_name	email_from	email_subject	email_link	gmail_message_id
+   ```
+3. **Gmail labels**: create `invoices/processed` and `invoices/review` in Gmail (a label `invoices` with two nested labels).
+4. **Import both workflows** from the terminal. This keeps their ids, so the main workflow already points at its error workflow:
    ```bash
+   docker compose exec n8n n8n import:workflow --input=/workflows/invoice-errors.json
    docker compose exec n8n n8n import:workflow --input=/workflows/invoice-processing.json
    ```
-4. Pick the credentials in each node, activate the workflow, and email yourself one of the test invoices.
+   (Importing in the editor works too, via *Workflows → Import from file*; then choose **Invoice processing errors** under *Settings → Error workflow* of the main workflow.)
+5. **Finish the setup in the editor**: pick the credentials in each node, and in **Gmail: label processed** and **Gmail: label review** pick the matching label. Activate both workflows, then email yourself one of the test invoices.
 
 n8n's data (workflows, encrypted credentials, executions) is kept in the `n8n_data` volume. `docker compose down -v` deletes it.
 
