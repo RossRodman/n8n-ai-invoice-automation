@@ -18,7 +18,30 @@ jobs:
       - name: JSON files are well-formed
         run: |
           find . -name '*.json' -not -path './.git/*' -not -path '*/node_modules/*' -not -name 'tsconfig*.json' -print0 \
-            | xargs -0 -r -n1 python3 -m json.tool > /dev/null
+            | xargs -0 -r -n1 jq empty
+
+  samples:
+    name: Test invoices
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: |
+          npm run lint
+          npm run format:check
+      - name: Type-check
+        run: npm run typecheck
+      - name: PDFs match expected.json
+        run: npm test
 
   client:
     name: Client

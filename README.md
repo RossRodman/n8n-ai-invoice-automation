@@ -40,7 +40,7 @@ flowchart LR
 
 | Field | Example | |
 |---|---|---|
-| `supplier_name` | ТОВ "Будмакс" | Legal name of the seller |
+| `supplier_name` | ТОВ «Будмакс» | Legal name of the seller |
 | `supplier_tax_id` | 41234567 | EDRPOU / VAT id, if printed |
 | `invoice_number` | INV-2026-0142 | |
 | `invoice_date` | 2026-11-03 | ISO date, whatever the format on the PDF |
@@ -63,15 +63,24 @@ flowchart LR
 
 ## Test invoices
 
-`samples/invoices/` will hold five PDF invoices, each covering one case, with the values the workflow should extract:
+[`samples/invoices/`](samples/invoices) holds five PDF invoices, each covering one case. Email one to the inbox the workflow watches and compare the result with [`expected.json`](samples/invoices/expected.json), which lists the values the workflow should extract and where each invoice should end up.
 
-| # | Invoice | Expected |
-|---|---|---|
-| 1 | Ukrainian supplier, UAH, ПДВ 20% | Invoices tab |
-| 2 | EU supplier, EUR, VAT 19%, date as `03.11.2026` | Invoices tab |
-| 3 | VAT-exempt services (0%) | Invoices tab |
-| 4 | Net + VAT doesn't match the total | Review tab: amounts don't add up |
-| 5 | Scanned image, no text layer | Review tab: no text in the PDF |
+| # | Invoice | Supplier | Total | Expected |
+|---|---|---|---|---|
+| 1 | [Ukrainian supplier, UAH, ПДВ 20%](samples/invoices/01-budmax-uah-vat-20.pdf), date written in words | ТОВ «Будмакс» | 12 000,00 UAH | Invoices tab |
+| 2 | [EU supplier, EUR, VAT 19%](samples/invoices/02-nordlicht-eur-vat-19.pdf), German labels, date as `03.11.2026` | Nordlicht Bürotechnik GmbH | 1.873,06 € | Invoices tab |
+| 3 | [VAT-exempt services (0%)](samples/invoices/03-kovalenko-uah-no-vat.pdf) from a sole proprietor | ФОП Коваленко О. І. | 23 400,00 UAH | Invoices tab |
+| 4 | [Net + VAT doesn't match the total](samples/invoices/04-ofis-plus-amounts-mismatch.pdf): 8 450 + 1 690 ≠ 10 240 | ТОВ «Офіс Плюс» | 10 240,00 UAH | Review tab: amounts don't add up |
+| 5 | [Scanned image, no text layer](samples/invoices/05-tekhnoservis-scanned.pdf) | ТОВ «ТехноСервіс Груп» | 9 000,00 UAH | Review tab: no text in the PDF |
+
+The invoices are generated from [`scripts/src/data.ts`](scripts/src/data.ts), so they are easy to change or extend. The scan is a screenshot of the page, tilted and given scanner noise, saved as an image-only PDF. All companies, tax ids and bank details are made up.
+
+```bash
+cd scripts
+npm install
+npm run samples   # rebuild the PDFs and expected.json (needs Chrome; set CHROME if it isn't found)
+npm test          # the PDFs and expected.json agree; runs in CI
+```
 
 ## Tech stack
 
@@ -82,6 +91,7 @@ flowchart LR
 | **Integrations** | Gmail (trigger, labels), Google Sheets (ledger), Slack (notifications) |
 | **Web UI** | React 19, TypeScript (strict), Vite, Material UI 9 (light and dark), TanStack Query, React Router |
 | **API** | n8n webhook workflows; nginx (Docker) and Vite (dev) proxy `/api/*` to n8n's `/webhook/*` |
+| **Test data** | TypeScript: invoices printed by headless Chrome, the scan made with sharp and pdf-lib, checked with pdf.js (unpdf) and Vitest |
 | **Quality** | Vitest + Testing Library, oxlint, Prettier, pre-commit, GitHub Actions |
 
 ## Quick start
@@ -167,7 +177,8 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 │   ├── Dockerfile          # Vite build served by nginx
 │   └── nginx.conf          # SPA + /api proxy to n8n
 ├── workflows/              # exported n8n workflows (JSON, no credentials)
-├── samples/invoices/       # five test invoices (PDF) and their expected values
+├── samples/invoices/       # five test invoices (PDF) and expected.json
+├── scripts/                # TypeScript: build and check the test invoices
 ├── docs/screenshots/       # screenshots for this README
 ├── docker-compose.yml      # n8n on :5678, web UI on :8080
 ├── .env.example            # workflow settings
