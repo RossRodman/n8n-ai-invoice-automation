@@ -1,0 +1,31 @@
+{
+  "name": "invoice-samples",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Builds and checks the test invoices in samples/invoices.",
+  "scripts": {
+    "samples": "tsx src/make.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "oxlint": "^1.93.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2",
+    "unpdf": "^1.7.0",
+    "vitest": "^4.1.12"
+  }
+}
