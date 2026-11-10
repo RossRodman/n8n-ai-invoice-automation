@@ -1,0 +1,283 @@
+{
+  "name": "Invoice processing",
+  "nodes": [
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a01",
+      "name": "Gmail: new invoice email",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "={{ $env.INVOICE_GMAIL_QUERY }}",
+          "readStatus": "both"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "notes": "Polls Gmail every minute for emails matching INVOICE_GMAIL_QUERY and downloads their attachments."
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a02",
+      "name": "Split PDF attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// One item per PDF attachment: an email with three invoices gives three rows.\n// Other attachments (logos, signatures, spreadsheets) are skipped.\nconst results = [];\n\nfor (const [index, item] of $input.all().entries()) {\n  const email = item.json;\n  const sender = email.from?.value?.[0];\n\n  for (const [key, file] of Object.entries(item.binary ?? {})) {\n    const isPdf = file.mimeType === 'application/pdf' || /\\.pdf$/i.test(file.fileName ?? '');\n    if (!isPdf) continue;\n\n    results.push({\n      json: {\n        gmail_message_id: email.id,\n        email_from: sender?.address ?? email.from?.text ?? '',\n        email_subject: email.subject ?? '',\n        received_at: new Date(email.date ?? Date.now()).toISOString(),\n        file_name: file.fileName ?? `${key}.pdf`,\n      },\n      binary: { data: file },\n      pairedItem: { item: index },\n    });\n  }\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a03",
+      "name": "Extract PDF text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a04",
+      "name": "Build extraction request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The request for OpenAI: the PDF text, instructions, and a JSON schema the\n// answer must follow. Strict mode means every field is always present\n// (null when it isn't on the invoice), so the next node never guesses.\nconst MAX_CHARS = 30000;\n\nconst SYSTEM = `You extract data from supplier invoices for bookkeeping.\nThe text was extracted from a PDF, so lines and spacing may be broken.\n\nRules:\n- The supplier is the seller (Постачальник, Verkäufer, Lieferant), never the buyer (Покупець, Kunde).\n- supplier_tax_id: the seller's ЄДРПОУ, РНОКПП or VAT id as printed, without spaces.\n- Dates as YYYY-MM-DD, whatever the format on the invoice (03.11.2026, \"3 листопада 2026 р.\").\n- Amounts as plain numbers: 1.574,00 € -> 1574.00, 10 000,00 -> 10000.00.\n- currency as an ISO 4217 code: грн, ₴ -> UAH; € -> EUR.\n- vat_rate in percent. When the invoice says there is no VAT (Без ПДВ, VAT exempt), vat_rate and vat_amount are 0.\n- Copy the totals exactly as printed, even if they don't add up. Never correct them.\n- Use null for anything that is not on the document.\n- confidence (0 to 1): how sure you are that every field is right. Lower it when the text is garbled, fields are missing, or the document may not be an invoice.`;\n\nconst nullable = (type) => ({ type: [type, 'null'] });\n\nconst SCHEMA = {\n  type: 'object',\n  additionalProperties: false,\n  required: [\n    'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date', 'due_date',\n    'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount', 'confidence',\n  ],\n  properties: {\n    supplier_name: nullable('string'),\n    supplier_tax_id: nullable('string'),\n    invoice_number: nullable('string'),\n    invoice_date: { ...nullable('string'), description: 'YYYY-MM-DD' },\n    due_date: { ...nullable('string'), description: 'YYYY-MM-DD' },\n    currency: { ...nullable('string'), description: 'ISO 4217, e.g. UAH, EUR' },\n    net_amount: { ...nullable('number'), description: 'Total without VAT' },\n    vat_rate: { ...nullable('number'), description: 'Percent, 0 when VAT-exempt' },\n    vat_amount: nullable('number'),\n    total_amount: { ...nullable('number'), description: 'Amount due, as printed' },\n    confidence: { type: 'number' },\n  },\n};\n\nconst fileName = $('Split PDF attachments').item.json.file_name;\nconst text = String($json.text ?? '').trim().slice(0, MAX_CHARS);\n\nreturn {\n  json: {\n    request: {\n      model: $env.INVOICE_OPENAI_MODEL || 'gpt-5-mini',\n      messages: [\n        { role: 'system', content: SYSTEM },\n        { role: 'user', content: `File: ${fileName}\\n\\n${text}` },\n      ],\n      response_format: {\n        type: 'json_schema',\n        json_schema: { name: 'invoice', strict: true, schema: SCHEMA },\n      },\n    },\n  },\n};"
+      }
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a05",
+      "name": "OpenAI: extract fields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Chat Completions with a strict JSON schema: the answer is always the invoice fields, never free text."
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a06",
+      "name": "Parse invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// OpenAI's answer, cleaned up into one row of the Invoices sheet, together\n// with where the invoice came from.\nconst source = $('Split PDF attachments').item.json;\nconst message = $json.choices?.[0]?.message;\n\nif (message?.refusal) {\n  throw new Error(`OpenAI refused to read ${source.file_name}: ${message.refusal}`);\n}\nif (!message?.content) {\n  throw new Error(`OpenAI returned no answer for ${source.file_name}`);\n}\n\nconst data = JSON.parse(message.content);\n\nconst text = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);\nconst amount = (value) =>\n  typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) / 100 : null;\nconst isoDate = (value) => {\n  const date = text(value);\n  if (!date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return null;\n  // 2026-02-30 matches the pattern but isn't a date.\n  return new Date(`${date}T00:00:00Z`).toISOString().startsWith(date) ? date : null;\n};\nconst confidence = amount(data.confidence);\n\nreturn {\n  json: {\n    received_at: source.received_at,\n    supplier_name: text(data.supplier_name),\n    supplier_tax_id: text(data.supplier_tax_id)?.replace(/\\s+/g, '') ?? null,\n    invoice_number: text(data.invoice_number),\n    invoice_date: isoDate(data.invoice_date),\n    due_date: isoDate(data.due_date),\n    currency: text(data.currency)?.toUpperCase() ?? null,\n    net_amount: amount(data.net_amount),\n    vat_rate: amount(data.vat_rate),\n    vat_amount: amount(data.vat_amount),\n    total_amount: amount(data.total_amount),\n    confidence: confidence === null ? null : Math.min(1, Math.max(0, confidence)),\n    file_name: source.file_name,\n    email_from: source.email_from,\n    email_subject: source.email_subject,\n    email_link: `https://mail.google.com/mail/u/0/#all/${source.gmail_message_id}`,\n    gmail_message_id: source.gmail_message_id,\n  },\n};"
+      }
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a07",
+      "name": "Sheets: add to Invoices",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a08",
+      "name": "Format Slack message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The Slack message for a filed invoice.\nconst invoice = $('Parse invoice').item.json;\n\n// Slack treats &, < and > as markup.\nconst escape = (value) =>\n  String(value ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// 12000 -> \"12 000,00\"\nconst money = (value) => {\n  if (value === null || value === undefined) return '—';\n  const [whole, cents] = Math.abs(value).toFixed(2).split('.');\n  const sign = value < 0 ? '-' : '';\n  return `${sign}${whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ')},${cents}`;\n};\n\nconst currency = escape(invoice.currency ?? '');\nconst vat = invoice.vat_rate\n  ? `VAT ${invoice.vat_rate}%: ${money(invoice.vat_amount)} ${currency}`\n  : 'No VAT';\n\nconst lines = [\n  `:receipt: *New invoice from ${escape(invoice.supplier_name)}*`,\n  `*${money(invoice.total_amount)} ${currency}* · No. ${escape(invoice.invoice_number)} · dated ${escape(invoice.invoice_date)} · due ${escape(invoice.due_date)}`,\n  `${vat} · ${escape(invoice.file_name)}`,\n  `<${invoice.email_link}|Open the email>`,\n];\n\nreturn { json: { text: lines.join('\\n') } };"
+      }
+    },
+    {
+      "id": "5e0d1a8c-2b7f-4c1e-9a43-1f6c2d7e8a09",
+      "name": "Slack: post to #invoices",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $env.INVOICE_SLACK_CHANNEL }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail: new invoice email": {
+      "main": [
+        [
+          {
+            "node": "Split PDF attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split PDF attachments": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF text": {
+      "main": [
+        [
+          {
+            "node": "Build extraction request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build extraction request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: extract fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: extract fields": {
+      "main": [
+        [
+          {
+            "node": "Parse invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse invoice": {
+      "main": [
+        [
+          {
+            "node": "Sheets: add to Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: add to Invoices": {
+      "main": [
+        [
+          {
+            "node": "Format Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack message": {
+      "main": [
+        [
+          {
+            "node": "Slack: post to #invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "Europe/Kyiv"
+  },
+  "active": false,
+  "tags": []
+}

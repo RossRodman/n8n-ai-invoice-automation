@@ -4,11 +4,6 @@
 # Local n8n data, if run outside Docker
 .n8n/
 
-# Python (scripts/)
-__pycache__/
-*.py[cod]
-.venv/
-
 # Node
 node_modules/
 dist/
