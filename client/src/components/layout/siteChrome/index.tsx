@@ -11,7 +11,7 @@ export function SiteChrome() {
   const closeMobile = () => setMobileOpen(false);
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100dvh" }}>
+    <Box sx={{ display: "flex", minHeight: "100dvh", height: { md: "100dvh" } }}>
       <Drawer
         variant="temporary"
         open={mobileOpen}
@@ -33,10 +33,21 @@ export function SiteChrome() {
         <Sidebar />
       </Drawer>
 
-      <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+      <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, minHeight: 0 }}>
         <Header onOpenMenu={() => setMobileOpen(true)} />
 
-        <Container component="main" maxWidth="lg" sx={{ flex: 1, py: { xs: 3, md: 5 } }}>
+        <Container
+          component="main"
+          maxWidth="lg"
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            py: 3,
+            overflowY: { md: "auto" },
+          }}
+        >
           <Outlet />
         </Container>
 

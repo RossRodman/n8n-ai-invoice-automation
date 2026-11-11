@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { api, ApiError, describeError } from "@/api";
+import { INVOICES, REVIEW_ITEMS } from "@/test/fixtures/invoices";
 import { mockApi } from "@/test/utils";
 
 describe("describeError", () => {
@@ -36,5 +37,21 @@ describe("api", () => {
   it("falls back to the method, path and status", async () => {
     mockApi({ "GET /healthz": new Response("Bad gateway", { status: 502 }) });
     await expect(api.health()).rejects.toThrow("GET /healthz failed (502)");
+  });
+});
+
+describe("invoice endpoints", () => {
+  it("unwraps the invoices", async () => {
+    mockApi({ "GET /api/invoices": { invoices: INVOICES } });
+    await expect(api.invoices()).resolves.toEqual(INVOICES);
+  });
+
+  it("asks for review items by status", async () => {
+    const calls = mockApi({ "GET /api/review": { items: REVIEW_ITEMS } });
+    await expect(api.review("open")).resolves.toEqual(REVIEW_ITEMS);
+
+    const fetched = vi.mocked(fetch).mock.calls[0]?.[0];
+    expect(String(fetched)).toBe("/api/review?status=open");
+    expect(calls).toHaveLength(1);
   });
 });

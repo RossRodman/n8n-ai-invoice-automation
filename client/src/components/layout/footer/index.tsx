@@ -5,7 +5,7 @@ import { REPO_URL } from "@/constants";
 export function Footer() {
   return (
     <Box component="footer" sx={{ borderTop: 1, borderColor: "divider" }}>
-      <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 3, md: 1.5 } }}>
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
           Built with n8n, OpenAI, Gmail, Google Sheets and Slack.{" "}
           <Link href={REPO_URL} target="_blank" rel="noreferrer" underline="hover">

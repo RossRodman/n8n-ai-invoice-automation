@@ -7,9 +7,9 @@ import { mockApi, renderRoute } from "@/test/utils";
 const ONLINE = { status: "ok" };
 
 describe("App", () => {
-  it("walks through the five steps of the workflow", async () => {
+  it("explains the workflow on its own page", async () => {
     mockApi({ "GET /healthz": ONLINE });
-    renderRoute("/");
+    renderRoute("/how-it-works");
 
     expect(
       screen.getByRole("heading", { level: 1, name: "Invoices in, bookkeeping out." }),
@@ -51,6 +51,17 @@ describe("App", () => {
     const links = screen.getAllByRole("link", { name: "Dashboard" });
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toHaveClass("active");
+  });
+
+  it("opens on the dashboard", async () => {
+    mockApi({
+      "GET /healthz": ONLINE,
+      "GET /api/invoices": { invoices: [] },
+      "GET /api/review": { items: [] },
+    });
+    renderRoute("/");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("has a not-found page", () => {
