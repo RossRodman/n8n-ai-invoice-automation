@@ -86,7 +86,7 @@ describe("main workflow file", () => {
     }
   });
 
-  it("reaches every node from the Gmail trigger", () => {
+  it("reaches every node from its two triggers: Gmail and the upload webhook", () => {
     const reached = new Set<string>();
     const visit = (name: string) => {
       if (reached.has(name)) return;
@@ -94,6 +94,7 @@ describe("main workflow file", () => {
       for (const next of targets(main, name).flat()) visit(next);
     };
     visit("Gmail: new invoice email");
+    visit("POST /upload");
 
     const nodes = main.nodes.filter((n) => n.type !== "n8n-nodes-base.stickyNote");
     expect([...reached].sort()).toEqual(nodes.map((n) => n.name).sort());
@@ -159,6 +160,7 @@ describe("routing", () => {
       "Sheets: add to Invoices",
       "Format Slack message",
       "Slack: post to #invoices",
+      "Came by email? (ledger)",
       "Gmail: label processed",
     ]);
     expect(chain("Review row")).toEqual([
@@ -166,7 +168,42 @@ describe("routing", () => {
       "Sheets: add to Review",
       "Format review alert",
       "Slack: post to #invoices-review",
+      "Came by email? (review)",
       "Gmail: label review",
+    ]);
+  });
+
+  it("only labels invoices that came by email", () => {
+    for (const [node, row] of [
+      ["Came by email? (ledger)", "Ledger row"],
+      ["Came by email? (review)", "Review row"],
+    ] as const) {
+      const condition = (
+        getNode(main, node).parameters as {
+          conditions: { conditions: { leftValue: string; operator: unknown }[] };
+        }
+      ).conditions.conditions[0];
+      expect(condition).toMatchObject({
+        leftValue: `={{ $('${row}').item.json.gmail_message_id ?? '' }}`,
+        operator: { type: "string", operation: "notEmpty" },
+      });
+      // Only the "true" output goes on to the label.
+      expect(main.connections[node]?.main).toHaveLength(1);
+    }
+  });
+
+  it("answers an upload before processing it", () => {
+    expect(getNode(main, "POST /upload").parameters).toMatchObject({
+      httpMethod: "POST",
+      path: "upload",
+      authentication: "headerAuth",
+      responseMode: "responseNode",
+    });
+    expect(targets(main, "POST /upload")).toEqual([["Check upload"]]);
+    expect(targets(main, "Check upload")).toEqual([["Respond to upload"]]);
+    expect(targets(main, "Respond to upload")).toEqual([["Valid PDF?"]]);
+    expect(main.connections["Valid PDF?"]?.main).toEqual([
+      [{ node: "Split PDF attachments", type: "main", index: 0 }],
     ]);
   });
 
@@ -241,6 +278,74 @@ describe("Split PDF attachments", () => {
   it("copes with a sender that has no parsed address", () => {
     const items = split([email({ attachment_0: pdf("a.pdf") }, { from: { text: "billing" } })]);
     expect(items[0]?.json.email_from).toBe("billing");
+  });
+});
+
+describe("Check upload", () => {
+  const pdf = { fileName: "invoice.pdf", mimeType: "application/pdf", fileSize: "70.2 kB" };
+  type Result = { json: Record<string, unknown>; binary?: Item["binary"] }[];
+  const check = (binary: Item["binary"]) =>
+    runCode(main, "Check upload", { input: [{ json: {}, binary }] }) as Result;
+
+  it("accepts one PDF, answers 202 and dresses it up like an email", () => {
+    const [item] = check({ file: pdf });
+    expect(item?.json).toMatchObject({
+      ok: true,
+      response: { status: 202, body: { status: "processing", file_name: "invoice.pdf" } },
+      id: null,
+      from: { text: "Invoice Desk" },
+      subject: "Uploaded in Invoice Desk",
+    });
+    expect(item?.binary).toEqual({ attachment_0: pdf });
+  });
+
+  it("goes on to be split like an email attachment", () => {
+    const [upload] = check({ file: pdf });
+    const [item] = runCode(main, "Split PDF attachments", { input: [upload as Item] }) as Item[];
+    expect(item?.json).toMatchObject({
+      gmail_message_id: null,
+      email_from: "Invoice Desk",
+      email_subject: "Uploaded in Invoice Desk",
+      file_name: "invoice.pdf",
+    });
+  });
+
+  it.each([
+    ["nothing", {}, 400, 'Send exactly one PDF, as the form field "file"'],
+    ["two files", { a: pdf, b: pdf }, 400, 'Send exactly one PDF, as the form field "file"'],
+    [
+      "an image",
+      { file: { fileName: "logo.png", mimeType: "image/png" } },
+      415,
+      "logo.png is not a PDF",
+    ],
+    [
+      "a PDF over 10 MB",
+      { file: { ...pdf, fileSize: "10.5 MB" } },
+      413,
+      "The PDF is larger than 10 MB",
+    ],
+  ])("refuses %s", (_label, binary, status, message) => {
+    expect(check(binary)).toEqual([
+      { json: { ok: false, response: { status, body: { message } } } },
+    ]);
+  });
+
+  it("only sends valid uploads on", () => {
+    const condition = (
+      getNode(main, "Valid PDF?").parameters as {
+        conditions: { conditions: { leftValue: string; operator: unknown }[] };
+      }
+    ).conditions.conditions[0];
+    expect(condition).toMatchObject({
+      leftValue: "={{ $json.ok }}",
+      operator: { type: "boolean", operation: "true" },
+    });
+    expect(getNode(main, "Respond to upload").parameters).toMatchObject({
+      respondWith: "json",
+      responseBody: "={{ JSON.stringify($json.response.body) }}",
+      options: { responseCode: "={{ $json.response.status }}" },
+    });
   });
 });
 
@@ -359,6 +464,14 @@ describe("Parse invoice", () => {
       email_link: EMAIL_LINK,
       gmail_message_id: SOURCE.gmail_message_id,
     });
+  });
+
+  it("has no email link for an uploaded PDF", () => {
+    const row = parse(answer({ ...expected.invoices[0]?.fields, confidence: 0.9 }), {
+      ...SOURCE,
+      gmail_message_id: null as unknown as string,
+    });
+    expect(row.email_link).toBeNull();
   });
 
   it("cleans up what the model returns", () => {
@@ -531,6 +644,16 @@ describe("Flag unreadable PDF", () => {
       }),
     );
 
+  it("has no email link for an uploaded PDF", () => {
+    const row = json(
+      runCode(main, "Flag unreadable PDF", {
+        json: { text: "" },
+        nodes: { "Split PDF attachments": { ...SOURCE, gmail_message_id: null } },
+      }),
+    );
+    expect(row.email_link).toBeNull();
+  });
+
   it("sends a PDF without text to review, with every field empty", () => {
     const row = flag({ text: "" });
     expect(row).toEqual({
@@ -583,11 +706,21 @@ describe("Ledger row and Review row", () => {
         },
       }),
     );
-    const columns = ["review_reasons", "review_details", ...LEDGER_COLUMNS];
+    const columns = [
+      "review_reasons",
+      "review_details",
+      ...LEDGER_COLUMNS,
+      "status",
+      "resolved_at",
+      "resolution_note",
+    ];
     expect(Object.keys(row)).toEqual(columns);
     expect(row).toMatchObject({
       review_reasons: "amounts_mismatch, low_confidence",
       review_details: "Why",
+      status: "open",
+      resolved_at: null,
+      resolution_note: null,
     });
     expect(readme).toContain(columns.join("\t"));
   });
@@ -625,6 +758,14 @@ describe("Format Slack message", () => {
         `<${EMAIL_LINK}|Open the email>`,
       ].join("\n"),
     );
+  });
+
+  it("says when the PDF was uploaded rather than emailed", () => {
+    expect(
+      format({ ...row, email_link: null })
+        .split("\n")
+        .at(-1),
+    ).toBe("Uploaded in Invoice Desk");
   });
 
   it("says when there is no VAT", () => {
@@ -670,6 +811,16 @@ describe("Format review alert", () => {
     const text = format({ ...review, supplier_name: null });
     expect(text.split("\n")[0]).toBe(":warning: *Invoice needs a review*");
     expect(text).not.toContain("Open the Review tab");
+  });
+
+  it("says when the PDF was uploaded rather than emailed", () => {
+    const upload = { ...review, email_link: null, email_subject: "Uploaded in Invoice Desk" };
+    expect(format(upload, { INVOICE_SHEET_ID: "1AbC" }).split("\n").slice(1)).toEqual([
+      "04-ofis-plus-amounts-mismatch.pdf · uploaded in Invoice Desk",
+      "> Amounts don't add up: net + VAT is 10 140,00, the total says 10 240,00",
+      "<https://docs.google.com/spreadsheets/d/1AbC|Open the Review tab>",
+    ]);
+    expect(format(upload).split("\n")).toHaveLength(3);
   });
 });
 
@@ -742,6 +893,8 @@ describe("nodes that talk to other services", () => {
         operation: "append",
         documentId: { value: "={{ $env.INVOICE_SHEET_ID }}" },
         sheetName: { mode: "name", value: tab },
+        // USER_ENTERED would drop a tax id's leading zeros and turn dates into numbers.
+        options: { cellFormat: "RAW" },
       });
     }
   });
