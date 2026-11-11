@@ -5,6 +5,12 @@ import { afterEach, vi } from "vitest";
 
 window.scrollTo = () => {};
 
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 window.matchMedia ??= (query: string) =>
   ({
     matches: false,
@@ -20,5 +26,6 @@ window.matchMedia ??= (query: string) =>
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   localStorage.clear();
 });

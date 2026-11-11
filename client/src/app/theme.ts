@@ -2,13 +2,14 @@ import { alpha, createTheme } from "@mui/material/styles";
 
 const SANS = '"Inter Variable", ui-sans-serif, system-ui, sans-serif';
 export const MONO = '"JetBrains Mono Variable", ui-monospace, monospace';
+export const PRIMARY = { light: "#4f46e5", dark: "#818cf8" } as const;
 
 export const theme = createTheme({
   cssVariables: { colorSchemeSelector: "data-color-scheme" },
   colorSchemes: {
     light: {
       palette: {
-        primary: { main: "#4f46e5" },
+        primary: { main: PRIMARY.light },
         secondary: { main: "#0d9488" },
         success: { main: "#16a34a" },
         warning: { main: "#d97706" },
@@ -20,7 +21,7 @@ export const theme = createTheme({
     },
     dark: {
       palette: {
-        primary: { main: "#818cf8" },
+        primary: { main: PRIMARY.dark },
         secondary: { main: "#2dd4bf" },
         success: { main: "#4ade80" },
         warning: { main: "#fbbf24" },

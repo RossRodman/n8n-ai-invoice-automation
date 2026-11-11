@@ -99,6 +99,16 @@ npm run samples   # rebuild the PDFs and expected.json (needs Chrome; set CHROME
 npm test          # the PDFs and expected.json agree, and the workflow's code works; runs in CI
 ```
 
+## Invoice Desk
+
+The web UI reads the same Google Sheets tabs through the API below, so what it shows is always what is in the books.
+
+- **Dashboard**: what was booked and how much VAT this month, how many invoices wait for review and why, invoice totals for the last six months, the top suppliers and the latest invoices. Amounts are never added across currencies; a switch picks which one to show.
+- **Invoices**: the whole ledger in a table you can search (supplier, tax ID, invoice number, file, sender), filter by currency, sort and download as CSV, with the totals of what is on screen. Filters live in the URL, so a filtered view can be shared. Clicking a row opens the invoice: amounts and whether they add up, dates, the AI's confidence, where it came from and a link to the email in Gmail.
+- **How it works**: the five steps an invoice goes through.
+
+On a laptop or desktop every page fits the window; long lists scroll inside their panel. On a phone the pages scroll as usual.
+
 ## Tech stack
 
 | | |
@@ -106,7 +116,7 @@ npm test          # the PDFs and expected.json agree, and the workflow's code wo
 | **Automation** | n8n 2.46 (self-hosted, Docker Compose) |
 | **AI** | OpenAI, structured output with a JSON schema |
 | **Integrations** | Gmail (trigger, labels), Google Sheets (ledger), Slack (notifications) |
-| **Web UI** | React 19, TypeScript (strict), Vite, Material UI 9 (light and dark), TanStack Query, React Router |
+| **Web UI** | React 19, TypeScript (strict), Vite, Material UI 9 (light and dark), MUI X Charts, TanStack Query, React Router |
 | **API** | n8n webhook workflow behind Header Auth; nginx (Docker) and Vite (dev) proxy `/api/*` to n8n's `/webhook/*` and add the key |
 | **Tests** | The workflows' Code nodes run in Vitest against the test invoices' expected values; the test PDFs are printed by headless Chrome, the scan made with sharp and pdf-lib, and checked with pdf.js (unpdf) |
 | **Quality** | Vitest + Testing Library, oxlint, Prettier, pre-commit, GitHub Actions |
@@ -226,8 +236,9 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 │   │   ├── app/            # router, query client, MUI theme
 │   │   ├── components/     # layout (sidebar, header, footer) and shared UI
 │   │   ├── features/       # one folder per page: components, hooks, pages
-│   │   ├── hooks/          # app-wide hooks (n8n health)
-│   │   ├── constants/      # links, navigation, query keys
+│   │   ├── hooks/          # app-wide data hooks (n8n health, invoices, review queue)
+│   │   ├── utils/          # formatting, invoice totals, filters, CSV
+│   │   ├── constants/      # links, navigation, query keys, review reasons
 │   │   ├── styled/         # shared sx styles
 │   │   └── test/           # test setup and helpers
 │   ├── Dockerfile          # Vite build served by nginx

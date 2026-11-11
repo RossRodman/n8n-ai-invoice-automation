@@ -19,7 +19,12 @@ export default defineConfig({
       output: {
         codeSplitting: {
           groups: [
-            { name: "mui", test: /node_modules[\\/](@mui|@emotion)/ },
+            { name: "mui", test: /node_modules[\\/](@mui[\\/](?!x-)|@emotion)/ },
+            // Only the dashboard chart uses these; they load when it does.
+            {
+              name: "charts",
+              test: /node_modules[\\/](@mui[\\/]x-|d3-|internmap|flatqueue|bezier-easing|use-sync-external-store)/,
+            },
             { name: "vendor", test: /node_modules/ },
           ],
         },
