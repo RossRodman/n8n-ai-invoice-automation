@@ -48,7 +48,7 @@ interface CodeContext {
   json?: Record<string, unknown>;
   /** What $('Other node').item.json returns, by node name. */
   nodes?: Record<string, Record<string, unknown>>;
-  /** What $('Other node').all() returns, by node name. */
+  /** What $('Other node').all() (and .first()) returns, by node name. */
   nodeItems?: Record<string, Item[]>;
   env?: Record<string, string>;
 }
@@ -70,6 +70,11 @@ export function runCode(workflow: Workflow, name: string, context: CodeContext =
       const items = context.nodeItems?.[other];
       if (!items) throw new Error(`test gave no data for $('${other}').all()`);
       return items;
+    },
+    first() {
+      const items = context.nodeItems?.[other];
+      if (!items) throw new Error(`test gave no data for $('${other}').first()`);
+      return items[0];
     },
   });
 

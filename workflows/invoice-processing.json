@@ -8,13 +8,13 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -60,
+        -720,
         -160
       ],
       "parameters": {
-        "content": "## 1. Read the PDF\nOne item per PDF attachment. A PDF without text (a scan) goes straight to review.",
-        "width": 960,
-        "height": 400
+        "content": "## 1. Read the PDF\nFrom Gmail, or uploaded in the web UI. One item per PDF. A PDF without text (a scan) goes straight to review.",
+        "width": 1620,
+        "height": 480
       }
     },
     {
@@ -43,7 +43,7 @@
       ],
       "parameters": {
         "content": "## 3a. Into the books\nInvoices tab, #invoices, Gmail label invoices/processed",
-        "width": 1150,
+        "width": 1370,
         "height": 380,
         "color": 4
       }
@@ -59,7 +59,7 @@
       ],
       "parameters": {
         "content": "## 3b. Needs a person\nUnreadable PDFs, failed extractions and failed checks: Review tab, #invoices-review, Gmail label invoices/review",
-        "width": 3020,
+        "width": 3240,
         "height": 360,
         "color": 3
       }
@@ -252,7 +252,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// OpenAI's answer, cleaned up into one row of the Invoices sheet, together\n// with where the invoice came from.\nconst source = $('Split PDF attachments').item.json;\nconst message = $json.choices?.[0]?.message;\n\nif (message?.refusal) {\n  throw new Error(`OpenAI refused to read ${source.file_name}: ${message.refusal}`);\n}\nif (!message?.content) {\n  throw new Error(`OpenAI returned no answer for ${source.file_name}`);\n}\n\nconst data = JSON.parse(message.content);\n\nconst text = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);\nconst amount = (value) =>\n  typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) / 100 : null;\nconst isoDate = (value) => {\n  const date = text(value);\n  if (!date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return null;\n  // 2026-02-30 matches the pattern but isn't a date.\n  return new Date(`${date}T00:00:00Z`).toISOString().startsWith(date) ? date : null;\n};\nconst confidence = amount(data.confidence);\n\nreturn {\n  json: {\n    received_at: source.received_at,\n    supplier_name: text(data.supplier_name),\n    supplier_tax_id: text(data.supplier_tax_id)?.replace(/\\s+/g, '') ?? null,\n    invoice_number: text(data.invoice_number),\n    invoice_date: isoDate(data.invoice_date),\n    due_date: isoDate(data.due_date),\n    currency: text(data.currency)?.toUpperCase() ?? null,\n    net_amount: amount(data.net_amount),\n    vat_rate: amount(data.vat_rate),\n    vat_amount: amount(data.vat_amount),\n    total_amount: amount(data.total_amount),\n    confidence: confidence === null ? null : Math.min(1, Math.max(0, confidence)),\n    file_name: source.file_name,\n    email_from: source.email_from,\n    email_subject: source.email_subject,\n    email_link: `https://mail.google.com/mail/u/0/#all/${source.gmail_message_id}`,\n    gmail_message_id: source.gmail_message_id,\n  },\n};"
+        "jsCode": "// OpenAI's answer, cleaned up into one row of the Invoices sheet, together\n// with where the invoice came from.\nconst source = $('Split PDF attachments').item.json;\nconst message = $json.choices?.[0]?.message;\n\nif (message?.refusal) {\n  throw new Error(`OpenAI refused to read ${source.file_name}: ${message.refusal}`);\n}\nif (!message?.content) {\n  throw new Error(`OpenAI returned no answer for ${source.file_name}`);\n}\n\nconst data = JSON.parse(message.content);\n\nconst text = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);\nconst amount = (value) =>\n  typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) / 100 : null;\nconst isoDate = (value) => {\n  const date = text(value);\n  if (!date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return null;\n  // 2026-02-30 matches the pattern but isn't a date.\n  return new Date(`${date}T00:00:00Z`).toISOString().startsWith(date) ? date : null;\n};\nconst confidence = amount(data.confidence);\n\nreturn {\n  json: {\n    received_at: source.received_at,\n    supplier_name: text(data.supplier_name),\n    supplier_tax_id: text(data.supplier_tax_id)?.replace(/\\s+/g, '') ?? null,\n    invoice_number: text(data.invoice_number),\n    invoice_date: isoDate(data.invoice_date),\n    due_date: isoDate(data.due_date),\n    currency: text(data.currency)?.toUpperCase() ?? null,\n    net_amount: amount(data.net_amount),\n    vat_rate: amount(data.vat_rate),\n    vat_amount: amount(data.vat_amount),\n    total_amount: amount(data.total_amount),\n    confidence: confidence === null ? null : Math.min(1, Math.max(0, confidence)),\n    file_name: source.file_name,\n    email_from: source.email_from,\n    email_subject: source.email_subject,\n    // Uploaded PDFs have no email to link to.\n    email_link: source.gmail_message_id\n      ? `https://mail.google.com/mail/u/0/#all/${source.gmail_message_id}`\n      : null,\n    gmail_message_id: source.gmail_message_id,\n  },\n};"
       },
       "onError": "continueErrorOutput"
     },
@@ -372,7 +372,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "retryOnFail": true,
       "maxTries": 3,
@@ -389,7 +391,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// The Slack message for a filed invoice.\nconst invoice = $('Ledger row').item.json;\n\n// Slack treats &, < and > as markup.\nconst escape = (value) =>\n  String(value ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// 12000 -> \"12 000,00\"\nconst money = (value) => {\n  if (value === null || value === undefined) return '—';\n  const [whole, cents] = Math.abs(value).toFixed(2).split('.');\n  const sign = value < 0 ? '-' : '';\n  return `${sign}${whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ')},${cents}`;\n};\n\nconst currency = escape(invoice.currency ?? '');\nconst vat = invoice.vat_rate\n  ? `VAT ${invoice.vat_rate}%: ${money(invoice.vat_amount)} ${currency}`\n  : 'No VAT';\n\nconst lines = [\n  `:receipt: *New invoice from ${escape(invoice.supplier_name)}*`,\n  `*${money(invoice.total_amount)} ${currency}* · No. ${escape(invoice.invoice_number)} · dated ${escape(invoice.invoice_date)} · due ${escape(invoice.due_date)}`,\n  `${vat} · ${escape(invoice.file_name)}`,\n  `<${invoice.email_link}|Open the email>`,\n];\n\nreturn { json: { text: lines.join('\\n') } };"
+        "jsCode": "// The Slack message for a filed invoice.\nconst invoice = $('Ledger row').item.json;\n\n// Slack treats &, < and > as markup.\nconst escape = (value) =>\n  String(value ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\n// 12000 -> \"12 000,00\"\nconst money = (value) => {\n  if (value === null || value === undefined) return '—';\n  const [whole, cents] = Math.abs(value).toFixed(2).split('.');\n  const sign = value < 0 ? '-' : '';\n  return `${sign}${whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ')},${cents}`;\n};\n\nconst currency = escape(invoice.currency ?? '');\nconst vat = invoice.vat_rate\n  ? `VAT ${invoice.vat_rate}%: ${money(invoice.vat_amount)} ${currency}`\n  : 'No VAT';\n\nconst lines = [\n  `:receipt: *New invoice from ${escape(invoice.supplier_name)}*`,\n  `*${money(invoice.total_amount)} ${currency}* · No. ${escape(invoice.invoice_number)} · dated ${escape(invoice.invoice_date)} · due ${escape(invoice.due_date)}`,\n  `${vat} · ${escape(invoice.file_name)}`,\n  invoice.email_link ? `<${invoice.email_link}|Open the email>` : 'Uploaded in Invoice Desk',\n];\n\nreturn { json: { text: lines.join('\\n') } };"
       }
     },
     {
@@ -421,7 +423,7 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        3630,
+        3850,
         -180
       ],
       "parameters": {
@@ -442,7 +444,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// A PDF the workflow couldn't read: no text in it (a scan), or reading or\n// extracting it failed even after retries. It goes to review with the reason;\n// the rest of the batch carries on.\nconst source = $('Split PDF attachments').item.json;\nconst error = $json.error;\n\nconst failed = error !== undefined;\nconst raw = typeof error === 'string' ? error : (error?.message ?? 'unknown error');\n// API errors arrive as `500 - \"{\\\"error\\\":{\\\"message\\\":\\\"...\\\"}}\"`: keep the readable part.\nconst status = /^(\\d{3}) - /.exec(raw)?.[1];\nconst inner = /message\\\\?\"\\s*:\\s*\\\\?\"([^\"\\\\]+)/.exec(raw)?.[1];\nconst message = inner ? `${status ? `HTTP ${status}: ` : ''}${inner}` : raw;\n\nreturn {\n  json: {\n    received_at: source.received_at,\n    supplier_name: null,\n    supplier_tax_id: null,\n    invoice_number: null,\n    invoice_date: null,\n    due_date: null,\n    currency: null,\n    net_amount: null,\n    vat_rate: null,\n    vat_amount: null,\n    total_amount: null,\n    confidence: null,\n    file_name: source.file_name,\n    email_from: source.email_from,\n    email_subject: source.email_subject,\n    email_link: `https://mail.google.com/mail/u/0/#all/${source.gmail_message_id}`,\n    gmail_message_id: source.gmail_message_id,\n    review_reasons: [failed ? 'extraction_failed' : 'no_text_layer'],\n    review_details: failed\n      ? `Couldn't read the invoice: ${message}`\n      : 'The PDF has no text layer, probably a scan. Enter it by hand.',\n  },\n};"
+        "jsCode": "// A PDF the workflow couldn't read: no text in it (a scan), or reading or\n// extracting it failed even after retries. It goes to review with the reason;\n// the rest of the batch carries on.\nconst source = $('Split PDF attachments').item.json;\nconst error = $json.error;\n\nconst failed = error !== undefined;\nconst raw = typeof error === 'string' ? error : (error?.message ?? 'unknown error');\n// API errors arrive as `500 - \"{\\\"error\\\":{\\\"message\\\":\\\"...\\\"}}\"`: keep the readable part.\nconst status = /^(\\d{3}) - /.exec(raw)?.[1];\nconst inner = /message\\\\?\"\\s*:\\s*\\\\?\"([^\"\\\\]+)/.exec(raw)?.[1];\nconst message = inner ? `${status ? `HTTP ${status}: ` : ''}${inner}` : raw;\n\nreturn {\n  json: {\n    received_at: source.received_at,\n    supplier_name: null,\n    supplier_tax_id: null,\n    invoice_number: null,\n    invoice_date: null,\n    due_date: null,\n    currency: null,\n    net_amount: null,\n    vat_rate: null,\n    vat_amount: null,\n    total_amount: null,\n    confidence: null,\n    file_name: source.file_name,\n    email_from: source.email_from,\n    email_subject: source.email_subject,\n    // Uploaded PDFs have no email to link to.\n    email_link: source.gmail_message_id\n      ? `https://mail.google.com/mail/u/0/#all/${source.gmail_message_id}`\n      : null,\n    gmail_message_id: source.gmail_message_id,\n    review_reasons: [failed ? 'extraction_failed' : 'no_text_layer'],\n    review_details: failed\n      ? `Couldn't read the invoice: ${message}`\n      : 'The PDF has no text layer, probably a scan. Enter it by hand.',\n  },\n};"
       }
     },
     {
@@ -456,7 +458,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// One row of the Review tab: why it's here first, then the same columns as\n// the Invoices tab, so a fixed row can be copied straight over.\nconst COLUMNS = [\n  'received_at', 'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date',\n  'due_date', 'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n  'confidence', 'file_name', 'email_from', 'email_subject', 'email_link', 'gmail_message_id',\n];\n\nreturn {\n  json: {\n    review_reasons: ($json.review_reasons ?? []).join(', '),\n    review_details: $json.review_details ?? '',\n    ...Object.fromEntries(COLUMNS.map((column) => [column, $json[column] ?? null])),\n  },\n};"
+        "jsCode": "// One row of the Review tab: why it's here first, then the same columns as\n// the Invoices tab, then where the review stands (the web UI fills those in).\nconst COLUMNS = [\n  'received_at', 'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date',\n  'due_date', 'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n  'confidence', 'file_name', 'email_from', 'email_subject', 'email_link', 'gmail_message_id',\n];\n\nreturn {\n  json: {\n    review_reasons: ($json.review_reasons ?? []).join(', '),\n    review_details: $json.review_details ?? '',\n    ...Object.fromEntries(COLUMNS.map((column) => [column, $json[column] ?? null])),\n    status: 'open',\n    resolved_at: null,\n    resolution_note: null,\n  },\n};"
       }
     },
     {
@@ -486,7 +488,9 @@
           "matchingColumns": [],
           "schema": []
         },
-        "options": {}
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "retryOnFail": true,
       "maxTries": 3,
@@ -503,7 +507,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// The Slack alert for an invoice that needs a person.\nconst invoice = $('Review row').item.json;\n\n// Slack treats &, < and > as markup.\nconst escape = (value) =>\n  String(value ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst sheet = $env.INVOICE_SHEET_ID\n  ? ` · <https://docs.google.com/spreadsheets/d/${$env.INVOICE_SHEET_ID}|Open the Review tab>`\n  : '';\nconst from = invoice.supplier_name ? ` from ${escape(invoice.supplier_name)}` : '';\n\nconst lines = [\n  `:warning: *Invoice needs a review${from}*`,\n  `${escape(invoice.file_name)} · ${escape(invoice.email_subject)}`,\n  `> ${escape(invoice.review_details)}`,\n  `<${invoice.email_link}|Open the email>${sheet}`,\n];\n\nreturn { json: { text: lines.join('\\n') } };"
+        "jsCode": "// The Slack alert for an invoice that needs a person.\nconst invoice = $('Review row').item.json;\n\n// Slack treats &, < and > as markup.\nconst escape = (value) =>\n  String(value ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst from = invoice.supplier_name ? ` from ${escape(invoice.supplier_name)}` : '';\n// Uploaded PDFs have no email.\nconst origin = invoice.email_link ? escape(invoice.email_subject) : 'uploaded in Invoice Desk';\nconst links = [\n  invoice.email_link && `<${invoice.email_link}|Open the email>`,\n  $env.INVOICE_SHEET_ID &&\n    `<https://docs.google.com/spreadsheets/d/${$env.INVOICE_SHEET_ID}|Open the Review tab>`,\n].filter(Boolean);\n\nconst lines = [\n  `:warning: *Invoice needs a review${from}*`,\n  `${escape(invoice.file_name)} · ${origin}`,\n  `> ${escape(invoice.review_details)}`,\n  ...(links.length ? [links.join(' · ')] : []),\n];\n\nreturn { json: { text: lines.join('\\n') } };"
       }
     },
     {
@@ -535,7 +539,7 @@
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
       "position": [
-        3630,
+        3850,
         220
       ],
       "parameters": {
@@ -544,6 +548,157 @@
         "labelIds": []
       },
       "notes": "Pick the Gmail label \"invoices/review\" here after connecting your Gmail credential."
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000032",
+      "name": "Came by email? (ledger)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3630,
+        -180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f9a2c1d-8e7b-4d6a-a5c4-000000000033",
+              "leftValue": "={{ $('Ledger row').item.json.gmail_message_id ?? '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000034",
+      "name": "Came by email? (review)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3630,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f9a2c1d-8e7b-4d6a-a5c4-000000000035",
+              "leftValue": "={{ $('Review row').item.json.gmail_message_id ?? '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000036",
+      "name": "POST /upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -660,
+        180
+      ],
+      "webhookId": "5d4c3b2a-1f0e-4d9c-8b7a-000000000037",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Header Auth: X-Api-Key must match INVOICE_API_KEY. The web UI's proxy adds it."
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000038",
+      "name": "Check upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        180
+      ],
+      "parameters": {
+        "jsCode": "// POST /api/upload: a PDF dropped into the web UI. It goes through the same\n// steps as one that came by email; there is just no email to link or label.\nconst MAX_BYTES = 10 * 1024 * 1024;\nconst request = $input.first();\nconst files = Object.values(request.binary ?? {});\nconst file = files[0];\n\nconst reject = (status, message) => [{ json: { ok: false, response: { status, body: { message } } } }];\n\nif (files.length !== 1) return reject(400, 'Send exactly one PDF, as the form field \"file\"');\nconst isPdf = file.mimeType === 'application/pdf' || /\\.pdf$/i.test(file.fileName ?? '');\nif (!isPdf) return reject(415, `${file.fileName ?? 'The file'} is not a PDF`);\nconst size = Number.parseFloat(file.fileSize) * (/MB/i.test(file.fileSize) ? 1024 * 1024 : /kB/i.test(file.fileSize) ? 1024 : 1);\nif (Number.isFinite(size) && size > MAX_BYTES) return reject(413, 'The PDF is larger than 10 MB');\n\nconst fileName = file.fileName ?? 'upload.pdf';\nreturn [{\n  json: {\n    ok: true,\n    response: { status: 202, body: { status: 'processing', file_name: fileName } },\n    // Shaped like the Gmail trigger's output, so the next steps don't care.\n    id: null,\n    from: { text: 'Invoice Desk' },\n    subject: 'Uploaded in Invoice Desk',\n    date: new Date().toISOString(),\n  },\n  binary: { attachment_0: { ...file, fileName } },\n}];"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000039",
+      "name": "Respond to upload",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -220,
+        180
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response.body) }}",
+        "options": {
+          "responseCode": "={{ $json.response.status }}"
+        }
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000040",
+      "name": "Valid PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f9a2c1d-8e7b-4d6a-a5c4-000000000041",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -769,6 +924,17 @@
       "main": [
         [
           {
+            "node": "Came by email? (ledger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Came by email? (ledger)": {
+      "main": [
+        [
+          {
             "node": "Gmail: label processed",
             "type": "main",
             "index": 0
@@ -824,7 +990,62 @@
       "main": [
         [
           {
+            "node": "Came by email? (review)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Came by email? (review)": {
+      "main": [
+        [
+          {
             "node": "Gmail: label review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /upload": {
+      "main": [
+        [
+          {
+            "node": "Check upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check upload": {
+      "main": [
+        [
+          {
+            "node": "Respond to upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to upload": {
+      "main": [
+        [
+          {
+            "node": "Valid PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid PDF?": {
+      "main": [
+        [
+          {
+            "node": "Split PDF attachments",
             "type": "main",
             "index": 0
           }

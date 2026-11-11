@@ -14,6 +14,7 @@ RUN npm run build
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /src/dist /usr/share/nginx/html
-# Where n8n runs; overridable at `docker run`.
+# Where n8n runs, and the key its webhooks expect; set at `docker run`.
 ENV N8N_UPSTREAM=http://n8n:5678
+ENV INVOICE_API_KEY=""
 EXPOSE 80

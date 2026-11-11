@@ -35,7 +35,7 @@ flowchart LR
     SR --> L2[Gmail label<br/>invoices/review]
 ```
 
-1. **Gmail trigger** polls for emails that match `INVOICE_GMAIL_QUERY` (PDF attachments not yet labelled), and downloads the attachments.
+1. **Gmail trigger** polls for emails that match `INVOICE_GMAIL_QUERY` (PDF attachments not yet labelled), and downloads the attachments. A PDF uploaded in Invoice Desk enters the same way, through a webhook.
 2. **Each PDF is handled on its own**, so an email with three invoices gives three rows, and one bad PDF doesn't hold up the others.
 3. **The text is extracted from the PDF.** A PDF without text (a scan) or one that can't be opened goes straight to review.
 4. **OpenAI** gets the text and a strict JSON schema. The answer is the invoice fields plus a confidence score, never free text. A failed call (rate limit, server error) is tried again after 20 seconds; if that fails too, the invoice goes to review.
@@ -107,8 +107,8 @@ npm test          # the PDFs and expected.json agree, and the workflow's code wo
 | **AI** | OpenAI, structured output with a JSON schema |
 | **Integrations** | Gmail (trigger, labels), Google Sheets (ledger), Slack (notifications) |
 | **Web UI** | React 19, TypeScript (strict), Vite, Material UI 9 (light and dark), TanStack Query, React Router |
-| **API** | n8n webhook workflows; nginx (Docker) and Vite (dev) proxy `/api/*` to n8n's `/webhook/*` |
-| **Tests** | The workflow's Code nodes run in Vitest against the test invoices' expected values; the test PDFs are printed by headless Chrome, the scan made with sharp and pdf-lib, and checked with pdf.js (unpdf) |
+| **API** | n8n webhook workflow behind Header Auth; nginx (Docker) and Vite (dev) proxy `/api/*` to n8n's `/webhook/*` and add the key |
+| **Tests** | The workflows' Code nodes run in Vitest against the test invoices' expected values; the test PDFs are printed by headless Chrome, the scan made with sharp and pdf-lib, and checked with pdf.js (unpdf) |
 | **Quality** | Vitest + Testing Library, oxlint, Prettier, pre-commit, GitHub Actions |
 
 ## Quick start
@@ -131,24 +131,26 @@ Open n8n and create the owner account. Then:
    - **Gmail** and **Google Sheets**: Google OAuth2. In Google Cloud, enable the Gmail and Sheets APIs and add `http://localhost:5678/rest/oauth2-credential/callback` as a redirect URI.
    - **OpenAI**: an API key.
    - **Slack**: a bot token with the `chat:write` scope, invited to both channels.
+   - **Invoice API key**: *Header Auth*, name `X-Api-Key`, value the same as `INVOICE_API_KEY` in `.env` (`openssl rand -hex 24`).
 2. **Google Sheet** with two tabs, **Invoices** and **Review**. Put its id in `INVOICE_SHEET_ID`. The workflow fills columns by name, so paste these header rows into row 1 of each tab.
 
    **Invoices**:
    ```
    received_at	supplier_name	supplier_tax_id	invoice_number	invoice_date	due_date	currency	net_amount	vat_rate	vat_amount	total_amount	confidence	file_name	email_from	email_subject	email_link	gmail_message_id
    ```
-   **Review** (the same columns, after the reasons):
+   **Review** (the reasons, the same columns, then where the review stands):
    ```
-   review_reasons	review_details	received_at	supplier_name	supplier_tax_id	invoice_number	invoice_date	due_date	currency	net_amount	vat_rate	vat_amount	total_amount	confidence	file_name	email_from	email_subject	email_link	gmail_message_id
+   review_reasons	review_details	received_at	supplier_name	supplier_tax_id	invoice_number	invoice_date	due_date	currency	net_amount	vat_rate	vat_amount	total_amount	confidence	file_name	email_from	email_subject	email_link	gmail_message_id	status	resolved_at	resolution_note
    ```
 3. **Gmail labels**: create `invoices/processed` and `invoices/review` in Gmail (a label `invoices` with two nested labels).
-4. **Import both workflows** from the terminal. This keeps their ids, so the main workflow already points at its error workflow:
+4. **Import the workflows** from the terminal. This keeps their ids, so the others already point at the error workflow:
    ```bash
    docker compose exec n8n n8n import:workflow --input=/workflows/invoice-errors.json
    docker compose exec n8n n8n import:workflow --input=/workflows/invoice-processing.json
+   docker compose exec n8n n8n import:workflow --input=/workflows/invoice-api.json
    ```
-   (Importing in the editor works too, via *Workflows → Import from file*; then choose **Invoice processing errors** under *Settings → Error workflow* of the main workflow.)
-5. **Finish the setup in the editor**: pick the credentials in each node, and in **Gmail: label processed** and **Gmail: label review** pick the matching label. Activate both workflows, then email yourself one of the test invoices.
+   (Importing in the editor works too, via *Workflows → Import from file*; then choose **Invoice processing errors** under *Settings → Error workflow* of the other two.)
+5. **Finish the setup in the editor**: pick the credentials in each node (the webhooks use **Invoice API key**), and in **Gmail: label processed** and **Gmail: label review** pick the matching label. Activate all three workflows, then email yourself one of the test invoices, or upload one in Invoice Desk.
 
 n8n's data (workflows, encrypted credentials, executions) is kept in the `n8n_data` volume. `docker compose down -v` deletes it.
 
@@ -172,6 +174,30 @@ npm run dev               # http://localhost:5173, proxies /api to n8n on :5678
 
 `VITE_N8N_TARGET` points the dev proxy at another n8n. Optional git hooks: `pre-commit install`.
 
+## API
+
+The web UI talks to n8n through these webhooks (workflow [`invoice-api.json`](workflows/invoice-api.json), and the upload trigger in the main workflow).
+
+![The API workflow in the n8n editor](docs/screenshots/api-workflow.png)
+ nginx serves them at `/api/*` and adds the `X-Api-Key` header, so the key never reaches the browser. Calling n8n directly without the key gets `403`.
+
+| Endpoint | | Answers |
+|---|---|---|
+| `GET /api/invoices` | The Invoices tab, newest first | `{ invoices: Invoice[] }` |
+| `GET /api/review?status=open` | The review queue: `open` (default), `approved`, `rejected` or `all` | `{ items: ReviewItem[] }` |
+| `POST /api/review/approve` | `{ id, fields?, note? }`: apply the corrections, check them, move the invoice into the books, mark the review row approved, post to Slack | `{ invoice }`; `422 { message, problems }` if it still fails a check |
+| `POST /api/review/reject` | `{ id, note? }`: mark the review row rejected | `{ id, status, resolved_at }` |
+| `POST /api/upload` | One PDF as the multipart field `file`, processed exactly like an emailed one | `202 { status: "processing", file_name }` |
+
+An item's `id` is its row number in the sheet. Errors are `{ message }` with `400` (bad request), `404` (no such item), `409` (already approved or rejected), `413` (over 10 MB) or `415` (not a PDF). An approval runs the same checks as the workflow, apart from the AI's confidence: required fields, valid dates and currency, amounts that add up, and no duplicate in the books.
+
+```bash
+curl -H "X-Api-Key: $INVOICE_API_KEY" localhost:5678/webhook/review
+curl -X POST localhost:8080/api/review/approve -H "Content-Type: application/json" \
+  -d '{"id": 4, "fields": {"total_amount": 10140}, "note": "Confirmed with the supplier"}'
+curl -F file=@samples/invoices/02-nordlicht-eur-vat-19.pdf localhost:8080/api/upload
+```
+
 ## Configuration
 
 Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored here, only in n8n.
@@ -181,6 +207,7 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 | `N8N_ENCRYPTION_KEY` | generated | Encrypts stored credentials. Set it to move or back up the data |
 | `N8N_PORT` | `5678` | Port of the n8n editor |
 | `INVOICE_WEB_PORT` | `8080` | Port of the web UI |
+| `INVOICE_API_KEY` | — | Shared secret between the web UI's proxy and the API webhooks |
 | `GENERIC_TIMEZONE`, `TZ` | `Europe/Kyiv` | Time zone for dates |
 | `INVOICE_GMAIL_QUERY` | PDFs without an `invoices/*` label | Which emails are invoices |
 | `INVOICE_SHEET_ID` | — | Google Sheet with the Invoices and Review tabs |
@@ -206,7 +233,9 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 │   ├── Dockerfile          # Vite build served by nginx
 │   └── nginx.conf          # SPA + /api proxy to n8n
 ├── workflows/              # exported n8n workflows (JSON, no credentials)
-│   └── invoice-processing.json
+│   ├── invoice-processing.json  # Gmail or upload → AI → checks → Sheets, Slack
+│   ├── invoice-api.json         # webhooks for the web UI
+│   └── invoice-errors.json      # Slack alert when a workflow fails
 ├── samples/invoices/       # five test invoices (PDF) and expected.json
 ├── scripts/                # TypeScript: test invoices and tests for the workflows
 ├── docs/screenshots/       # screenshots for this README

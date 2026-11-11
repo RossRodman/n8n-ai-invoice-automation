@@ -1,0 +1,939 @@
+{
+  "id": "InvoiceApiFlow01",
+  "name": "Invoice Desk API",
+  "nodes": [
+    {
+      "id": "1b2c3d4e-5f6a-4b7c-8d9e-000000000201",
+      "name": "Note: api",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -160
+      ],
+      "parameters": {
+        "content": "## Invoice Desk API\nWebhooks for the web UI, behind Header Auth (X-Api-Key). Each endpoint ends in a Respond node that sends `{ status, body }`.",
+        "width": 2900,
+        "height": 100
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000202",
+      "name": "GET /invoices",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5d4c3b2a-1f0e-4d9c-8b7a-000000000203",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "invoices",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Header Auth: X-Api-Key must match INVOICE_API_KEY. The web UI's proxy adds it."
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000204",
+      "name": "Sheets: read Invoices",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000205",
+      "name": "Invoices response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// GET /api/invoices: every row of the Invoices tab, newest first.\n// Google Sheets hands values back loosely: numbers as numbers or text, dates\n// as text or day counts, empty cells as \"\". Turn a row into clean JSON.\nconst LEDGER_COLUMNS = [\n  'received_at', 'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date',\n  'due_date', 'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n  'confidence', 'file_name', 'email_from', 'email_subject', 'email_link', 'gmail_message_id',\n];\nconst NUMBER_FIELDS = new Set(['net_amount', 'vat_rate', 'vat_amount', 'total_amount', 'confidence']);\nconst DATE_FIELDS = new Set(['invoice_date', 'due_date']);\n\nconst toText = (value) => {\n  if (value === null || value === undefined) return null;\n  const text = String(value).trim();\n  return text === '' ? null : text;\n};\nconst toNumber = (value) => {\n  if (typeof value === 'number') return Number.isFinite(value) ? value : null;\n  const text = toText(value);\n  if (text === null) return null;\n  const number = Number(text.replace(/[\\s ]/g, '').replace(',', '.'));\n  return Number.isFinite(number) ? number : null;\n};\nconst toDate = (value) => {\n  // A day count from 1899-12-30, if the cell was ever formatted as a date.\n  if (typeof value === 'number') {\n    return new Date(Date.UTC(1899, 11, 30) + value * 86400000).toISOString().slice(0, 10);\n  }\n  return toText(value);\n};\nconst clean = (column, value) =>\n  NUMBER_FIELDS.has(column) ? toNumber(value) : DATE_FIELDS.has(column) ? toDate(value) : toText(value);\n\n// One sheet row as an invoice: its row number is its id.\nconst toInvoice = (row) => ({\n  id: row.row_number,\n  ...Object.fromEntries(LEDGER_COLUMNS.map((column) => [column, clean(column, row[column])])),\n});\n\n// An empty sheet still sends one empty item.\nconst sheetRows = (items) => items.map((item) => item.json).filter((row) => row.row_number !== undefined);\n\nconst respond = (status, body) => ({ json: { status, body } });\n\nconst invoices = sheetRows($input.all())\n  .map(toInvoice)\n  .sort((a, b) => String(b.received_at ?? '').localeCompare(String(a.received_at ?? '')));\n\nreturn [respond(200, { invoices })];"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000206",
+      "name": "Respond: invoices",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000207",
+      "name": "GET /review",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "5d4c3b2a-1f0e-4d9c-8b7a-000000000208",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "review",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Header Auth: X-Api-Key must match INVOICE_API_KEY. The web UI's proxy adds it."
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000209",
+      "name": "Sheets: read Review",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Review"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000210",
+      "name": "Review response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// GET /api/review?status=open|approved|rejected|all: the review queue, newest\n// first. Rows from before the status column existed count as open.\n// Google Sheets hands values back loosely: numbers as numbers or text, dates\n// as text or day counts, empty cells as \"\". Turn a row into clean JSON.\nconst LEDGER_COLUMNS = [\n  'received_at', 'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date',\n  'due_date', 'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n  'confidence', 'file_name', 'email_from', 'email_subject', 'email_link', 'gmail_message_id',\n];\nconst NUMBER_FIELDS = new Set(['net_amount', 'vat_rate', 'vat_amount', 'total_amount', 'confidence']);\nconst DATE_FIELDS = new Set(['invoice_date', 'due_date']);\n\nconst toText = (value) => {\n  if (value === null || value === undefined) return null;\n  const text = String(value).trim();\n  return text === '' ? null : text;\n};\nconst toNumber = (value) => {\n  if (typeof value === 'number') return Number.isFinite(value) ? value : null;\n  const text = toText(value);\n  if (text === null) return null;\n  const number = Number(text.replace(/[\\s ]/g, '').replace(',', '.'));\n  return Number.isFinite(number) ? number : null;\n};\nconst toDate = (value) => {\n  // A day count from 1899-12-30, if the cell was ever formatted as a date.\n  if (typeof value === 'number') {\n    return new Date(Date.UTC(1899, 11, 30) + value * 86400000).toISOString().slice(0, 10);\n  }\n  return toText(value);\n};\nconst clean = (column, value) =>\n  NUMBER_FIELDS.has(column) ? toNumber(value) : DATE_FIELDS.has(column) ? toDate(value) : toText(value);\n\n// One sheet row as an invoice: its row number is its id.\nconst toInvoice = (row) => ({\n  id: row.row_number,\n  ...Object.fromEntries(LEDGER_COLUMNS.map((column) => [column, clean(column, row[column])])),\n});\n\n// An empty sheet still sends one empty item.\nconst sheetRows = (items) => items.map((item) => item.json).filter((row) => row.row_number !== undefined);\n\nconst respond = (status, body) => ({ json: { status, body } });\n\nconst STATUSES = ['open', 'approved', 'rejected', 'all'];\nconst wanted = String($('GET /review').first().json.query?.status ?? 'open').toLowerCase();\n\nif (!STATUSES.includes(wanted)) {\n  return [respond(400, { message: `status must be one of: ${STATUSES.join(', ')}` })];\n}\n\nconst items = sheetRows($input.all())\n  .map((row) => ({\n    ...toInvoice(row),\n    review_reasons: (toText(row.review_reasons) ?? '').split(',').map((r) => r.trim()).filter(Boolean),\n    review_details: toText(row.review_details),\n    status: toText(row.status)?.toLowerCase() ?? 'open',\n    resolved_at: toText(row.resolved_at),\n    resolution_note: toText(row.resolution_note),\n  }))\n  .filter((item) => wanted === 'all' || item.status === wanted)\n  .sort((a, b) => String(b.received_at ?? '').localeCompare(String(a.received_at ?? '')));\n\nreturn [respond(200, { items })];"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000211",
+      "name": "Respond: review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000212",
+      "name": "POST /review/approve",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "5d4c3b2a-1f0e-4d9c-8b7a-000000000213",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "review/approve",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Header Auth: X-Api-Key must match INVOICE_API_KEY. The web UI's proxy adds it."
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000214",
+      "name": "Sheets: read Review (approve)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        220,
+        400
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Review"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "executeOnce": true
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000215",
+      "name": "Sheets: read Invoices (approve)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        440,
+        400
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "executeOnce": true
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000216",
+      "name": "Prepare approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// POST /api/review/approve { id, fields, note }: a person has checked the\n// invoice (and maybe fixed some fields). It must now pass the same rules as\n// any invoice going into the books, except the AI's confidence.\n// Google Sheets hands values back loosely: numbers as numbers or text, dates\n// as text or day counts, empty cells as \"\". Turn a row into clean JSON.\nconst LEDGER_COLUMNS = [\n  'received_at', 'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date',\n  'due_date', 'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n  'confidence', 'file_name', 'email_from', 'email_subject', 'email_link', 'gmail_message_id',\n];\nconst NUMBER_FIELDS = new Set(['net_amount', 'vat_rate', 'vat_amount', 'total_amount', 'confidence']);\nconst DATE_FIELDS = new Set(['invoice_date', 'due_date']);\n\nconst toText = (value) => {\n  if (value === null || value === undefined) return null;\n  const text = String(value).trim();\n  return text === '' ? null : text;\n};\nconst toNumber = (value) => {\n  if (typeof value === 'number') return Number.isFinite(value) ? value : null;\n  const text = toText(value);\n  if (text === null) return null;\n  const number = Number(text.replace(/[\\s ]/g, '').replace(',', '.'));\n  return Number.isFinite(number) ? number : null;\n};\nconst toDate = (value) => {\n  // A day count from 1899-12-30, if the cell was ever formatted as a date.\n  if (typeof value === 'number') {\n    return new Date(Date.UTC(1899, 11, 30) + value * 86400000).toISOString().slice(0, 10);\n  }\n  return toText(value);\n};\nconst clean = (column, value) =>\n  NUMBER_FIELDS.has(column) ? toNumber(value) : DATE_FIELDS.has(column) ? toDate(value) : toText(value);\n\n// One sheet row as an invoice: its row number is its id.\nconst toInvoice = (row) => ({\n  id: row.row_number,\n  ...Object.fromEntries(LEDGER_COLUMNS.map((column) => [column, clean(column, row[column])])),\n});\n\n// An empty sheet still sends one empty item.\nconst sheetRows = (items) => items.map((item) => item.json).filter((row) => row.row_number !== undefined);\n\nconst respond = (status, body) => ({ json: { status, body } });\n\nconst EDITABLE = [\n  'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date', 'due_date',\n  'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n];\nconst REQUIRED = {\n  supplier_name: 'supplier', invoice_number: 'invoice number', invoice_date: 'invoice date',\n  currency: 'currency', net_amount: 'net amount', vat_amount: 'VAT amount', total_amount: 'total',\n};\nconst TOLERANCE_CENTS = 2;\nconst money = (value) => {\n  const [whole, cents] = Math.abs(value).toFixed(2).split('.');\n  return `${value < 0 ? '-' : ''}${whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ')},${cents}`;\n};\nconst differs = (a, b) => Math.abs(Math.round(a * 100) - Math.round(b * 100)) > TOLERANCE_CENTS;\nconst isDate = (value) =>\n  /^\\d{4}-\\d{2}-\\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);\nconst key = (row) => {\n  const supplier = String(row.supplier_tax_id || row.supplier_name || '').replace(/\\s+/g, '').toLowerCase();\n  const number = String(row.invoice_number ?? '').replace(/\\s+/g, '').toLowerCase();\n  return supplier && number ? `${supplier}|${number}` : null;\n};\n\nconst { body = {} } = $('POST /review/approve').first().json;\nconst id = Number(body.id);\nconst row = sheetRows($('Sheets: read Review (approve)').all()).find((r) => r.row_number === id);\n\nif (!Number.isInteger(id)) return [respond(400, { message: 'id must be the review row number' })];\nif (!row) return [respond(404, { message: `No review item ${id}` })];\nconst status = toText(row.status)?.toLowerCase() ?? 'open';\nif (status !== 'open') return [respond(409, { message: `Review item ${id} is already ${status}` })];\n\nconst fields = body.fields && typeof body.fields === 'object' ? body.fields : {};\nconst invoice = toInvoice(row);\nfor (const field of EDITABLE) {\n  if (field in fields) invoice[field] = clean(field, fields[field]);\n}\nif (invoice.supplier_tax_id) invoice.supplier_tax_id = invoice.supplier_tax_id.replace(/\\s+/g, '');\nif (invoice.currency) invoice.currency = invoice.currency.toUpperCase();\nif (!invoice.email_link && invoice.gmail_message_id) {\n  invoice.email_link = `https://mail.google.com/mail/u/0/#all/${invoice.gmail_message_id}`;\n}\n\nconst problems = [];\nconst missing = Object.entries(REQUIRED).filter(([f]) => invoice[f] === null).map(([, label]) => label);\nif (missing.length) problems.push(`Missing: ${missing.join(', ')}`);\nfor (const field of ['invoice_date', 'due_date']) {\n  if (invoice[field] !== null && !isDate(invoice[field])) problems.push(`${field} must be a date like 2026-11-03`);\n}\nif (invoice.currency !== null && !/^[A-Z]{3}$/.test(invoice.currency)) {\n  problems.push('currency must be a three-letter code like UAH or EUR');\n}\nconst { net_amount: net, vat_amount: vat, vat_rate: rate, total_amount: total } = invoice;\nif (net !== null && vat !== null && total !== null && differs(net + vat, total)) {\n  problems.push(`Net + VAT is ${money(net + vat)}, the total is ${money(total)}`);\n}\nif (net !== null && vat !== null && rate !== null && differs((net * rate) / 100, vat)) {\n  problems.push(`${rate}% VAT on ${money(net)} is ${money((net * rate) / 100)}, not ${money(vat)}`);\n}\nconst invoiceKey = key(invoice);\nif (invoiceKey && sheetRows($input.all()).some((r) => key(r) === invoiceKey)) {\n  problems.push(`Invoice ${invoice.invoice_number} from ${invoice.supplier_name} is already in the books`);\n}\n\nif (problems.length) {\n  return [respond(422, { message: \"The invoice can't go into the books yet\", problems })];\n}\n\nconst now = new Date().toISOString();\nconst note = toText(body.note);\nconst { id: _id, ...ledgerRow } = invoice;\n\nreturn [{\n  json: {\n    ok: true,\n    invoice,\n    ledger_row: ledgerRow,\n    review_update: { row_number: id, status: 'approved', resolved_at: now, resolution_note: note ?? '' },\n  },\n}];"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000217",
+      "name": "Can approve?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f9a2c1d-8e7b-4d6a-a5c4-000000000218",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000219",
+      "name": "Approval: ledger row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The row for the Invoices tab, as Prepare approval worked it out.\nreturn { json: $json.ledger_row };"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000220",
+      "name": "Sheets: add to Invoices",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1320,
+        520
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000221",
+      "name": "Approval: review update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Mark the review row approved: matched on its row number.\nreturn { json: $('Prepare approval').item.json.review_update };"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000222",
+      "name": "Sheets: mark approved",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1760,
+        520
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Review"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000223",
+      "name": "Format approval message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The Slack message for an invoice a person approved.\nconst { invoice, review_update: update } = $('Prepare approval').item.json;\n\nconst escape = (value) =>\n  String(value ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst money = (value) => {\n  if (value === null || value === undefined) return '—';\n  const [whole, cents] = Math.abs(value).toFixed(2).split('.');\n  return `${value < 0 ? '-' : ''}${whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ')},${cents}`;\n};\n\nconst lines = [\n  `:white_check_mark: *Approved after review: ${escape(invoice.supplier_name)}*`,\n  `*${money(invoice.total_amount)} ${escape(invoice.currency)}* · No. ${escape(invoice.invoice_number)} · dated ${escape(invoice.invoice_date)}`,\n];\nif (update.resolution_note) lines.push(`> ${escape(update.resolution_note)}`);\n\nreturn { json: { text: lines.join('\\n') } };"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000224",
+      "name": "Slack: post to #invoices",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        2200,
+        520
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $env.INVOICE_SLACK_CHANNEL }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000225",
+      "name": "Approval response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 200 with the invoice as it now stands in the books.\nconst { invoice } = $('Prepare approval').item.json;\nreturn { json: { status: 200, body: { invoice } } };"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000226",
+      "name": "Respond: approve",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2640,
+        400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000227",
+      "name": "POST /review/reject",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        800
+      ],
+      "webhookId": "5d4c3b2a-1f0e-4d9c-8b7a-000000000228",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "review/reject",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Header Auth: X-Api-Key must match INVOICE_API_KEY. The web UI's proxy adds it."
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000229",
+      "name": "Sheets: read Review (reject)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        220,
+        800
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Review"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "executeOnce": true
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000230",
+      "name": "Prepare rejection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// POST /api/review/reject { id, note }: not an invoice for the books (spam,\n// a quote, a duplicate). The row stays in the Review tab, marked rejected.\n// Google Sheets hands values back loosely: numbers as numbers or text, dates\n// as text or day counts, empty cells as \"\". Turn a row into clean JSON.\nconst LEDGER_COLUMNS = [\n  'received_at', 'supplier_name', 'supplier_tax_id', 'invoice_number', 'invoice_date',\n  'due_date', 'currency', 'net_amount', 'vat_rate', 'vat_amount', 'total_amount',\n  'confidence', 'file_name', 'email_from', 'email_subject', 'email_link', 'gmail_message_id',\n];\nconst NUMBER_FIELDS = new Set(['net_amount', 'vat_rate', 'vat_amount', 'total_amount', 'confidence']);\nconst DATE_FIELDS = new Set(['invoice_date', 'due_date']);\n\nconst toText = (value) => {\n  if (value === null || value === undefined) return null;\n  const text = String(value).trim();\n  return text === '' ? null : text;\n};\nconst toNumber = (value) => {\n  if (typeof value === 'number') return Number.isFinite(value) ? value : null;\n  const text = toText(value);\n  if (text === null) return null;\n  const number = Number(text.replace(/[\\s ]/g, '').replace(',', '.'));\n  return Number.isFinite(number) ? number : null;\n};\nconst toDate = (value) => {\n  // A day count from 1899-12-30, if the cell was ever formatted as a date.\n  if (typeof value === 'number') {\n    return new Date(Date.UTC(1899, 11, 30) + value * 86400000).toISOString().slice(0, 10);\n  }\n  return toText(value);\n};\nconst clean = (column, value) =>\n  NUMBER_FIELDS.has(column) ? toNumber(value) : DATE_FIELDS.has(column) ? toDate(value) : toText(value);\n\n// One sheet row as an invoice: its row number is its id.\nconst toInvoice = (row) => ({\n  id: row.row_number,\n  ...Object.fromEntries(LEDGER_COLUMNS.map((column) => [column, clean(column, row[column])])),\n});\n\n// An empty sheet still sends one empty item.\nconst sheetRows = (items) => items.map((item) => item.json).filter((row) => row.row_number !== undefined);\n\nconst respond = (status, body) => ({ json: { status, body } });\n\nconst { body = {} } = $('POST /review/reject').first().json;\nconst id = Number(body.id);\nconst row = sheetRows($input.all()).find((r) => r.row_number === id);\n\nif (!Number.isInteger(id)) return [respond(400, { message: 'id must be the review row number' })];\nif (!row) return [respond(404, { message: `No review item ${id}` })];\nconst status = toText(row.status)?.toLowerCase() ?? 'open';\nif (status !== 'open') return [respond(409, { message: `Review item ${id} is already ${status}` })];\n\nreturn [{\n  json: {\n    ok: true,\n    review_update: {\n      row_number: id,\n      status: 'rejected',\n      resolved_at: new Date().toISOString(),\n      resolution_note: toText(body.note) ?? '',\n    },\n  },\n}];"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000231",
+      "name": "Can reject?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f9a2c1d-8e7b-4d6a-a5c4-000000000232",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000233",
+      "name": "Rejection: review update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        919.9999999999999
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Mark the review row rejected: matched on its row number.\nreturn { json: $json.review_update };"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000234",
+      "name": "Sheets: mark rejected",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1100,
+        919.9999999999999
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.INVOICE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Review"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000235",
+      "name": "Rejection response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        919.9999999999999
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 200 with the review item's new state.\nconst update = $('Prepare rejection').item.json.review_update;\nreturn {\n  json: {\n    status: 200,\n    body: { id: update.row_number, status: update.status, resolved_at: update.resolved_at },\n  },\n};"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000236",
+      "name": "Respond: reject",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1540,
+        800
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "GET /invoices": {
+      "main": [
+        [
+          {
+            "node": "Sheets: read Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: read Invoices": {
+      "main": [
+        [
+          {
+            "node": "Invoices response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invoices response": {
+      "main": [
+        [
+          {
+            "node": "Respond: invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /review": {
+      "main": [
+        [
+          {
+            "node": "Sheets: read Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: read Review": {
+      "main": [
+        [
+          {
+            "node": "Review response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review response": {
+      "main": [
+        [
+          {
+            "node": "Respond: review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /review/approve": {
+      "main": [
+        [
+          {
+            "node": "Sheets: read Review (approve)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: read Review (approve)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: read Invoices (approve)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: read Invoices (approve)": {
+      "main": [
+        [
+          {
+            "node": "Prepare approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare approval": {
+      "main": [
+        [
+          {
+            "node": "Can approve?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Can approve?": {
+      "main": [
+        [
+          {
+            "node": "Approval: ledger row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval: ledger row": {
+      "main": [
+        [
+          {
+            "node": "Sheets: add to Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: add to Invoices": {
+      "main": [
+        [
+          {
+            "node": "Approval: review update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval: review update": {
+      "main": [
+        [
+          {
+            "node": "Sheets: mark approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: mark approved": {
+      "main": [
+        [
+          {
+            "node": "Format approval message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format approval message": {
+      "main": [
+        [
+          {
+            "node": "Slack: post to #invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: post to #invoices": {
+      "main": [
+        [
+          {
+            "node": "Approval response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval response": {
+      "main": [
+        [
+          {
+            "node": "Respond: approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /review/reject": {
+      "main": [
+        [
+          {
+            "node": "Sheets: read Review (reject)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: read Review (reject)": {
+      "main": [
+        [
+          {
+            "node": "Prepare rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare rejection": {
+      "main": [
+        [
+          {
+            "node": "Can reject?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Can reject?": {
+      "main": [
+        [
+          {
+            "node": "Rejection: review update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rejection: review update": {
+      "main": [
+        [
+          {
+            "node": "Sheets: mark rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: mark rejected": {
+      "main": [
+        [
+          {
+            "node": "Rejection response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rejection response": {
+      "main": [
+        [
+          {
+            "node": "Respond: reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Kyiv",
+    "errorWorkflow": "InvoiceErrorFlow"
+  },
+  "active": false,
+  "tags": []
+}
