@@ -1,5 +1,7 @@
 import TaskAltRounded from "@mui/icons-material/TaskAltRounded";
-import { Alert, Box, Card, Skeleton, Stack, Typography } from "@mui/material";
+import ArrowForwardRounded from "@mui/icons-material/ArrowForwardRounded";
+import { Alert, Box, Button, Card, Skeleton, Stack, Typography } from "@mui/material";
+import { Link } from "react-router";
 
 import { EmptyState } from "@/components/emptyState";
 import { SectionHeader } from "@/components/sectionHeader";
@@ -22,6 +24,20 @@ export function ReviewSummary({ items, error }: ReviewSummaryProps) {
         id="review-title"
         title="Needs a person"
         description="Why open invoices were held back"
+        action={
+          items &&
+          items.length > 0 && (
+            <Button
+              size="small"
+              component={Link}
+              to="/review"
+              endIcon={<ArrowForwardRounded />}
+              sx={{ flexShrink: 0, mr: -1 }}
+            >
+              Review
+            </Button>
+          )
+        }
       />
 
       {error ? (

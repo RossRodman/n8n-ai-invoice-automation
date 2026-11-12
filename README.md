@@ -41,7 +41,7 @@ flowchart LR
 4. **OpenAI** gets the text and a strict JSON schema. The answer is the invoice fields plus a confidence score, never free text. A failed call (rate limit, server error) is tried again after 20 seconds; if that fails too, the invoice goes to review.
 5. **Checks** decide whether the result can go straight into the books (see below).
 6. **Into the books**: a row is added to the **Invoices** tab, a short message is posted to `#invoices`, and the email is labelled `invoices/processed`.
-7. **Needs a person**: the invoice goes to the **Review** tab with the reasons, `#invoices-review` gets an alert with links to the email and the sheet, and the email is labelled `invoices/review`. A person fixes the row and moves it to the Invoices tab.
+7. **Needs a person**: the invoice goes to the **Review** tab with the reasons, `#invoices-review` gets an alert with links to the email and the sheet, and the email is labelled `invoices/review`. A person fixes it in Invoice Desk and approves it into the Invoices tab, or rejects it.
 8. **Errors** in the workflow itself (expired credentials, Google Sheets or Slack down) start a separate error workflow that posts the failed step, the error and a link to the execution to `#invoices-review`, so it can be fixed and retried from n8n.
 
 ![The invoice workflow in the n8n editor](docs/screenshots/workflow.png)
@@ -105,6 +105,8 @@ The web UI reads the same Google Sheets tabs through the API below, so what it s
 
 - **Dashboard**: what was booked and how much VAT this month, how many invoices wait for review and why, invoice totals for the last six months, the top suppliers and the latest invoices. Amounts are never added across currencies; a switch picks which one to show.
 - **Invoices**: the whole ledger in a table you can search (supplier, tax ID, invoice number, file, sender), filter by currency, sort and download as CSV, with the totals of what is on screen. Filters live in the URL, so a filtered view can be shared. Clicking a row opens the invoice: amounts and whether they add up, dates, the AI's confidence, where it came from and a link to the email in Gmail.
+- **Review**: the invoices the checks held back, with the reasons. Fix the fields and see the checks pass or fail as you type (with one-click fixes when the right total or VAT follows from the other amounts), then approve the invoice into the books with a note for Slack, or reject it. n8n runs the same checks again before booking it. Approved and rejected items stay listed with the decision.
+- **Upload PDF**: drop one or more PDFs into the app instead of emailing them. Each goes through exactly the same steps as an emailed invoice.
 - **How it works**: the five steps an invoice goes through.
 
 On a laptop or desktop every page fits the window; long lists scroll inside their panel. On a phone the pages scroll as usual.
@@ -237,7 +239,7 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 │   │   ├── components/     # layout (sidebar, header, footer) and shared UI
 │   │   ├── features/       # one folder per page: components, hooks, pages
 │   │   ├── hooks/          # app-wide data hooks (n8n health, invoices, review queue)
-│   │   ├── utils/          # formatting, invoice totals, filters, CSV
+│   │   ├── utils/          # formatting, invoice totals, filters, CSV, review checks
 │   │   ├── constants/      # links, navigation, query keys, review reasons
 │   │   ├── styled/         # shared sx styles
 │   │   └── test/           # test setup and helpers
