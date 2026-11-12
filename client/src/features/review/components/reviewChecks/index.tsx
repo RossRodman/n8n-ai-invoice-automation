@@ -53,7 +53,13 @@ export function ReviewChecks({ checks, onFix }: ReviewChecksProps) {
                 <Button
                   size="small"
                   onClick={() => check.fix && onFix(check.fix.field, check.fix.value)}
-                  sx={{ mt: 0.25, ml: -0.75, py: 0 }}
+                  sx={{
+                    mt: 0.25,
+                    ml: -0.75,
+                    py: 0,
+                    textAlign: "left",
+                    justifyContent: "flex-start",
+                  }}
                 >
                   {check.fix.label}
                 </Button>

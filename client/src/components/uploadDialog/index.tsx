@@ -115,6 +115,7 @@ export function UploadDialog({ open, onClose }: UploadDialogProps) {
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           sx={{
+            position: "relative",
             display: "grid",
             justifyItems: "center",
             gap: 1,

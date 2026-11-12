@@ -12,6 +12,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)
 
+![Invoice Desk: the dashboard](docs/screenshots/dashboard.png)
+
 ## How it works
 
 ```mermaid
@@ -111,6 +113,38 @@ The web UI reads the same Google Sheets tabs through the API below, so what it s
 
 On a laptop or desktop every page fits the window; long lists scroll inside their panel. On a phone the pages scroll as usual.
 
+### An invoice through Invoice Desk
+
+The screenshots use made-up sample data, including the [test invoices](#test-invoices).
+
+**1. It comes in**, by email or dropped into **Upload PDF**. n8n picks it up straight away.
+
+![Uploading two of the test invoices](docs/screenshots/upload.png)
+
+**2. It passes the checks** and goes into the books. It shows up in **Invoices**; clicking a row opens the details: the amounts and whether they add up, the AI's confidence and where the invoice came from.
+
+![The invoices table with one invoice open](docs/screenshots/invoice-details.png)
+
+**3. Or it is held back.** Test invoice 4 says net 8 450 + VAT 1 690 = 10 240, which is 100 off. It waits in **Review** with the reason, and the failing check offers the total that matches.
+
+![The review queue: net + VAT doesn't match the total](docs/screenshots/review.png)
+
+**4. A person fixes it.** One click sets the total and every check passes. **Approve and book** sends only the changed field and the note to n8n, which checks the invoice again, books it and posts to Slack.
+
+![The same invoice fixed, ready to approve](docs/screenshots/review-fixed.png)
+
+**5. The dashboard** sums up what was booked, in light or dark mode.
+
+![The dashboard in dark mode](docs/screenshots/dashboard-dark.png)
+
+On a phone:
+
+<p>
+  <img src="docs/screenshots/mobile-dashboard.png" alt="The dashboard on a phone" width="280">
+  &nbsp;
+  <img src="docs/screenshots/mobile-review.png" alt="Fixing an invoice on a phone" width="280">
+</p>
+
 ## Tech stack
 
 | | |
@@ -191,7 +225,8 @@ npm run dev               # http://localhost:5173, proxies /api to n8n on :5678
 The web UI talks to n8n through these webhooks (workflow [`invoice-api.json`](workflows/invoice-api.json), and the upload trigger in the main workflow).
 
 ![The API workflow in the n8n editor](docs/screenshots/api-workflow.png)
- nginx serves them at `/api/*` and adds the `X-Api-Key` header, so the key never reaches the browser. Calling n8n directly without the key gets `403`.
+
+nginx serves them at `/api/*` and adds the `X-Api-Key` header, so the key never reaches the browser. Calling n8n directly without the key gets `403`.
 
 | Endpoint | | Answers |
 |---|---|---|
@@ -251,7 +286,7 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 │   └── invoice-errors.json      # Slack alert when a workflow fails
 ├── samples/invoices/       # five test invoices (PDF) and expected.json
 ├── scripts/                # TypeScript: test invoices and tests for the workflows
-├── docs/screenshots/       # screenshots for this README
+├── docs/screenshots/       # screenshots for this README (sample data)
 ├── docker-compose.yml      # n8n on :5678, web UI on :8080
 ├── .env.example            # workflow settings
 ├── .pre-commit-config.yaml
@@ -263,10 +298,10 @@ Set in `.env` (see [`.env.example`](.env.example)). Credentials are never stored
 Built in small, reviewable pull requests:
 
 - [x] **1. Project setup**: n8n and the web UI in Docker Compose, React + MUI app shell (layout, theme, routing, n8n status), tests, CI, pre-commit
-- [ ] **2. Test invoices**: five PDF invoices covering the cases above, with expected values
-- [ ] **3. Main workflow**: Gmail → PDF text → OpenAI extraction → Google Sheets → Slack
-- [ ] **4. Review and errors**: checks, Review tab, Slack alerts, Gmail labels, error workflow
-- [ ] **5. Workflow API**: n8n webhooks for the UI (invoices, review queue, approve/reject, upload)
-- [ ] **6. Dashboard and invoices**: stats, charts, invoice table with details and the PDF
-- [ ] **7. Review queue and upload**: fix and approve flagged invoices, upload a PDF by hand
+- [x] **2. Test invoices**: five PDF invoices covering the cases above, with expected values
+- [x] **3. Main workflow**: Gmail → PDF text → OpenAI extraction → Google Sheets → Slack
+- [x] **4. Review and errors**: checks, Review tab, Slack alerts, Gmail labels, error workflow
+- [x] **5. Workflow API**: n8n webhooks for the UI (invoices, review queue, approve/reject, upload)
+- [x] **6. Dashboard and invoices**: stats, charts, invoice table with details
+- [x] **7. Review queue and upload**: fix and approve flagged invoices, upload a PDF by hand
 - [ ] **8. Polish**: screenshots, end-to-end run on the test invoices, docs
