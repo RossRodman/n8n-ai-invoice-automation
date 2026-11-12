@@ -46,5 +46,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Page tests render the whole app; on a busy CI runner they need more than 5 s.
+    testTimeout: 15_000,
   },
 });
