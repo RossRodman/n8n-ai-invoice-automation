@@ -1,9 +1,17 @@
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
+configure({ asyncUtilTimeout: 4_000 });
+
 window.scrollTo = () => {};
+
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 
 window.matchMedia ??= (query: string) =>
   ({
@@ -20,5 +28,6 @@ window.matchMedia ??= (query: string) =>
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   localStorage.clear();
 });

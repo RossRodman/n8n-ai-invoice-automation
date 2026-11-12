@@ -1,6 +1,9 @@
 import MenuRounded from "@mui/icons-material/MenuRounded";
-import { AppBar, Box, IconButton, Stack, Toolbar } from "@mui/material";
+import UploadFileRounded from "@mui/icons-material/UploadFileRounded";
+import { AppBar, Box, Button, IconButton, Stack, Toolbar, Tooltip } from "@mui/material";
+import { useState } from "react";
 
+import { UploadDialog } from "@/components/uploadDialog";
 import { useHealth } from "@/hooks/useHealth";
 
 import { SourceLink } from "./sourceLink";
@@ -13,6 +16,7 @@ interface HeaderProps {
 
 export function Header({ onOpenMenu }: HeaderProps) {
   const health = useHealth();
+  const [uploading, setUploading] = useState(false);
 
   return (
     <AppBar
@@ -42,8 +46,29 @@ export function Header({ onOpenMenu }: HeaderProps) {
           <StatusPill state={health} />
           <ThemeToggle />
           <SourceLink />
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<UploadFileRounded />}
+            onClick={() => setUploading(true)}
+            sx={{ display: { xs: "none", sm: "inline-flex" }, ml: "12px !important" }}
+          >
+            Upload PDF
+          </Button>
+          <Tooltip title="Upload PDF">
+            <IconButton
+              aria-label="Upload PDF"
+              color="primary"
+              onClick={() => setUploading(true)}
+              sx={{ display: { sm: "none" } }}
+            >
+              <UploadFileRounded />
+            </IconButton>
+          </Tooltip>
         </Stack>
       </Toolbar>
+
+      <UploadDialog open={uploading} onClose={() => setUploading(false)} />
     </AppBar>
   );
 }

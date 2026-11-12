@@ -1,0 +1,85 @@
+{
+  "id": "InvoiceErrorFlow",
+  "name": "Invoice processing errors",
+  "nodes": [
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000101",
+      "name": "When invoice processing fails",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000102",
+      "name": "Format error alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The Slack alert when the invoice workflow itself fails: credentials expired,\n// Google Sheets or Slack down. Invoices that can't be read don't land here;\n// they go to the Review tab.\nconst { execution = {}, workflow = {} } = $json;\n\nconst escape = (value) =>\n  String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst lines = [\n  `:rotating_light: *${escape(workflow.name || 'Invoice processing')} failed*`,\n  `Step: ${escape(execution.lastNodeExecuted || 'unknown')}`,\n  `> ${escape(execution.error?.message || 'No error message')}`,\n  execution.url\n    ? `<${execution.url}|Open the execution>, fix the cause, then retry it from n8n.`\n    : 'Open n8n → Executions, fix the cause, then retry the execution.',\n];\n\nreturn { json: { text: lines.join('\\n') } };"
+      }
+    },
+    {
+      "id": "7c1e4b2a-5d3f-4a8e-9b6c-000000000103",
+      "name": "Slack: post to #invoices-review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.7,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $env.INVOICE_SLACK_REVIEW_CHANNEL }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When invoice processing fails": {
+      "main": [
+        [
+          {
+            "node": "Format error alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format error alert": {
+      "main": [
+        [
+          {
+            "node": "Slack: post to #invoices-review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Kyiv"
+  },
+  "active": false,
+  "tags": []
+}

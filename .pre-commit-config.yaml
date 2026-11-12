@@ -6,7 +6,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-json
-        exclude: ^client/tsconfig.*\.json$
+        exclude: ^(client|scripts)/tsconfig.*\.json$
       - id: check-added-large-files
         exclude: ^samples/invoices/.*\.pdf$
       - id: detect-private-key
@@ -25,3 +25,18 @@ repos:
         entry: client/node_modules/.bin/oxlint -c client/.oxlintrc.json --deny-warnings
         language: system
         files: ^client/src/.*\.(ts|tsx)$
+
+  # Scripts (test invoices)
+  - repo: local
+    hooks:
+      - id: prettier-scripts
+        name: prettier (scripts)
+        entry: scripts/node_modules/.bin/prettier --write --ignore-unknown
+        language: system
+        files: ^scripts/
+        exclude: ^scripts/package-lock\.json$
+      - id: oxlint-scripts
+        name: oxlint (scripts)
+        entry: scripts/node_modules/.bin/oxlint -c scripts/.oxlintrc.json --deny-warnings
+        language: system
+        files: ^scripts/src/.*\.ts$
